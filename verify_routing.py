@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Verify a jev_task_routing installation in a project.
+
+Usage:  python3 .routing/verify_routing.py [--project DIR] [--ping] [--quiet]
+
+Exit codes: 0 all checks passed (warnings allowed), 1 at least one check failed.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+RULE_PAT = r"(?:AUTH|MODEL|ROLE|ORDER|Q|EVID|CLS|WF|MOD|VER|SAFE|ENF|VAL)-\d+[a-z]?"
+MARK_START = "<!-- jev-routing:start"
+MARK_END = "<!-- jev-routing:end -->"
+
+
+class Report:
+    def __init__(self, quiet=False):
+        self.fail = 0
+        self.warn = 0
+        self.quiet = quiet
+
+    def ok(self, msg):
+        if not self.quiet:
+            print(f"  [OK]   {msg}")
+
+    def warning(self, msg):
+        self.warn += 1
+        print(f"  [WARN] {msg}")
+
+    def error(self, msg):
+        self.fail += 1
+        print(f"  [FAIL] {msg}")
+
+
+def load_json(path, rep):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        rep.error(f"missing file: {path}")
+    except json.JSONDecodeError as e:
+        rep.error(f"invalid JSON in {path}: {e}")
+    return None
+
+
+def check_files(routing, rep):
+    required = ["jev_task_routing_v2.5.0.json", "jev_task_routing.schema.json", "ROUTING_POLICY.md", "verify_routing.py"]
+    for name in required:
+        p = routing / name
+        if p.is_file():
+            rep.ok(f"present: .routing/{name}")
+        else:
+            rep.error(f"missing: .routing/{name}")
+    if (routing / "tasks").is_dir():
+        rep.ok("present: .routing/tasks/")
+    else:
+        rep.error("missing directory: .routing/tasks/")
+    if (routing / "repo_checks.json").is_file():
+        rep.ok("present: .routing/repo_checks.json")
+    else:
+        rep.warning("missing .routing/repo_checks.json (copy repo_checks.example.json and edit)")
+
+
+def check_schema(cfg, schema, rep):
+    try:
+        import jsonschema  # noqa: F401
+    except ImportError:
+        rep.warning("python package 'jsonschema' not installed; skipping schema validation (pip install jsonschema)")
+        return
+    from jsonschema import Draft202012Validator, FormatChecker
+
+    v = Draft202012Validator(schema, format_checker=FormatChecker())
+    errs = sorted(v.iter_errors(cfg), key=lambda e: list(e.path))
+    if errs:
+        rep.error(f"config violates schema ({len(errs)} error(s))")
+        for e in errs[:10]:
+            print("         - /" + "/".join(map(str, e.path)) + ": " + e.message[:160])
+    else:
+        rep.ok("config validates against schema")
+
+
+def check_cross_refs(cfg, policy_md, rep):
+    stages = set(cfg.get("stages", {}))
+    roles = set(cfg.get("roles", {}))
+    for wid, wf in cfg.get("workflows", {}).items():
+        missing = [s for s in wf.get("stages", []) if s not in stages]
+        bad_roles = [r for r in wf.get("base_worker_roles", []) if r not in roles]
+        if missing or bad_roles:
+            rep.error(f"workflow '{wid}': unknown stages {missing} / roles {bad_roles}")
+    used = {s for wf in cfg.get("workflows", {}).values() for s in wf.get("stages", [])}
+    unused = stages - used
+    if unused:
+        rep.warning(f"stages defined but unused by any workflow: {sorted(unused)}")
+    rep.ok("workflow -> stage/role references resolve")
+
+    qs = set(cfg.get("jev", {}).get("questions", {}))
+    if len(qs) != 14:
+        rep.error(f"expected 14 Jev questions, found {len(qs)}")
+    else:
+        rep.ok("14 Jev questions present")
+    for key in ("risk_question_ids", "required_choice_ids"):
+        ids = set(cfg.get("jev", {}).get(key, []))
+        if not ids <= qs:
+            rep.error(f"jev.{key} not a subset of questions: {sorted(ids - qs)}")
+
+    # rule IDs referenced from JSON must exist in the policy document
+    defined = set(re.findall(r"\*\*(" + RULE_PAT + r")\b", policy_md))
+    defined |= set(re.findall(r"\((" + RULE_PAT + r")\)", policy_md))
+    for grp in re.findall(r"\(JSON: ([^)]+)\)", policy_md):
+        defined |= {x.strip() for x in grp.split(",")}
+    text = json.dumps(cfg)
+    referenced = set(re.findall(r'"(' + RULE_PAT + r')"', text)) | set(re.findall(r"\((" + RULE_PAT + r")\)", text))
+    referenced -= {r for r in referenced if re.match(r"VER-3[a-e]$", r)}  # defined inline in JSON tdd_guards
+    missing = sorted(referenced - defined)
+    if missing:
+        rep.error(f"rule IDs referenced in config but not defined in ROUTING_POLICY.md: {missing}")
+    else:
+        rep.ok(f"all {len(referenced)} referenced rule IDs defined in ROUTING_POLICY.md")
+
+    flags = cfg.get("decision", {}).get("trusted_flags", {})
+    noeffect = [k for k, v in flags.items() if not v.get("effect")]
+    if noeffect:
+        rep.error(f"trusted flags without consumption rule: {noeffect}")
+    else:
+        rep.ok("every trusted flag has a consumption rule")
+
+
+def check_agent_block(project, rep):
+    found = []
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        p = project / name
+        if p.is_file():
+            t = p.read_text(encoding="utf-8")
+            if MARK_START in t and MARK_END in t:
+                found.append(name)
+    if found:
+        rep.ok(f"routing block present in: {', '.join(found)}")
+    else:
+        rep.error("routing block (jev-routing markers) not found in CLAUDE.md or AGENTS.md")
+
+
+def check_installed_marker(routing, cfg, rep):
+    p = routing / "INSTALLED.json"
+    if not p.is_file():
+        rep.warning("no .routing/INSTALLED.json (install not recorded)")
+        return
+    meta = load_json(p, rep) or {}
+    if meta.get("policy_version") != cfg.get("version"):
+        rep.warning(f"INSTALLED.json version {meta.get('policy_version')} != config version {cfg.get('version')}")
+    else:
+        rep.ok(f"installed policy version {cfg.get('version')}")
+
+
+def check_env(cfg, rep):
+    var = cfg.get("jev", {}).get("api_key_env", "TYPESAFE_API_KEY")
+    if os.environ.get(var):
+        rep.ok(f"env {var} is set")
+    else:
+        rep.warning(f"env {var} is not set (required before any Jev call)")
+
+
+def ping(cfg, rep):
+    var = cfg["jev"]["api_key_env"]
+    key = os.environ.get(var)
+    if not key:
+        rep.error(f"--ping requested but {var} is not set")
+        return
+    try:
+        import requests
+    except ImportError:
+        rep.warning("python package 'requests' not installed; skipping --ping")
+        return
+    url = cfg["jev"]["base_url"].rstrip("/") + cfg["jev"]["endpoint"]
+    qid = "task_type"
+    payload = {
+        "model": cfg["jev"]["model"],
+        "state": {"task": "Fix a typo in README.md", "context": {}},
+        "questions": {qid: cfg["jev"]["questions"][qid]},
+    }
+    try:
+        r = requests.post(url, json=payload, headers={"Authorization": f"Bearer {key}"}, timeout=30)
+    except requests.RequestException as e:
+        rep.error(f"ping failed: {e}")
+        return
+    if r.status_code in (401, 403):
+        rep.error(f"ping: authentication rejected (HTTP {r.status_code}); check {var}")
+    elif 200 <= r.status_code < 300:
+        try:
+            body = r.json()
+        except ValueError:
+            body = {}
+        model = body.get("model") or body.get("response", {}).get("model")
+        rep.ok(f"ping: HTTP {r.status_code}; response.model={model!r} (expected {cfg['jev']['model']!r})")
+        if model and model != cfg["jev"]["model"]:
+            rep.warning("router model differs from pinned jev.model; revalidate thresholds before use (VAL-3)")
+    else:
+        rep.warning(f"ping: endpoint reachable, HTTP {r.status_code}. Payload shape may differ from the current TypeSafe API; this is a smoke test only, not an API-contract check.")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--project", default=".", help="project root (default: cwd)")
+    ap.add_argument("--ping", action="store_true", help="send one smoke request to the Jev endpoint")
+    ap.add_argument("--quiet", action="store_true", help="print only warnings/failures")
+    a = ap.parse_args()
+
+    project = Path(a.project).resolve()
+    routing = project / ".routing"
+    rep = Report(quiet=a.quiet)
+    print(f"verify_routing: {project}")
+
+    print("[1/6] files")
+    check_files(routing, rep)
+    cfg = load_json(routing / "jev_task_routing_v2.5.0.json", rep)
+    schema = load_json(routing / "jev_task_routing.schema.json", rep)
+    policy_path = routing / "ROUTING_POLICY.md"
+    policy_md = policy_path.read_text(encoding="utf-8") if policy_path.is_file() else ""
+    if not cfg or not schema or not policy_md:
+        print(f"\nRESULT: FAIL ({rep.fail} failure(s))")
+        return 1
+
+    print("[2/6] schema")
+    check_schema(cfg, schema, rep)
+    print("[3/6] cross references")
+    check_cross_refs(cfg, policy_md, rep)
+    print("[4/6] agent instructions")
+    check_agent_block(project, rep)
+    print("[5/6] install record")
+    check_installed_marker(routing, cfg, rep)
+    print("[6/6] environment")
+    check_env(cfg, rep)
+    if a.ping:
+        print("[+]   jev endpoint ping")
+        ping(cfg, rep)
+
+    status = "FAIL" if rep.fail else "PASS"
+    print(f"\nRESULT: {status} ({rep.fail} failure(s), {rep.warn} warning(s))")
+    return 1 if rep.fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
