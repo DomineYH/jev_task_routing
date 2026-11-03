@@ -179,7 +179,7 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 `examples/herdr/`에 이 정책과 함께 쓰는 프로젝트 문서의 정리본이 있습니다.
 
 - `AGENTS.md` — 호스트 규칙(코드는 워커가 작성, 문서 우선순위, 워커 수 최소화는 구현 워커에만, 대기·생존 확인, 권한) + 라우팅 블록
-- `herdr_orchestrator.md` — Herdr 운용 메커니즘만(점검, 재사용·분할, 지시 전달, 대기, 보고서 처리, 통합, 정리). 정책과 겹치던 문장은 규칙 ID 포인터로 대체
+- `herdr_orchestrator.md` (한국어) / `herdr_orchestrator_en.md` (English) — Herdr 운용 메커니즘만(점검, 재사용·분할, 지시 전달, 대기, 보고서 처리, 통합, 정리). 정책과 겹치던 문장은 규칙 ID 포인터로 대체
 
 문서 간 우선순위(AUTH-7): 사용자 승인·저장소 보호 → 현재 작업 지시서 → 정책 → 하네스 운용 문서 → AGENTS.md의 나머지 산문.
 
