@@ -19,7 +19,7 @@ HARNESS=""
 PING=0
 AUTH_CHECK=1
 DEST=".routing"
-POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json)
+POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json)
 MARK_START="<!-- jev-routing:start"
 MARK_END="<!-- jev-routing:end -->"
 
@@ -151,13 +151,20 @@ printf '%s    source revision: %s%s\n' "$c_dim" "$SRC_COMMIT" "$c_off"
 # ---------------------------------------------------------------- 3. install
 info "3/6 Installing into $DEST/"
 mkdir -p "$DEST/tasks"
-for f in jev_task_routing.json jev_task_routing.schema.json ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
+for f in jev_task_routing.json jev_task_routing.schema.json models.schema.json resolve_models.py ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
   if [[ -f "$DEST/$f" ]] && ! cmp -s "$SRC/$f" "$DEST/$f"; then
     cp "$DEST/$f" "$DEST/$f.bak"; warn "updated $DEST/$f (previous copy saved as $f.bak)"
   fi
   cp "$SRC/$f" "$DEST/$f"
 done
-chmod +x "$DEST/verify_routing.py"
+chmod +x "$DEST/verify_routing.py" "$DEST/resolve_models.py"
+# models.json is user-edited: create once, keep an always-fresh example beside it
+cp "$SRC/models.json" "$DEST/models.example.json"
+if [[ -f "$DEST/models.json" ]]; then
+  cmp -s "$SRC/models.json" "$DEST/models.json" || warn "kept your $DEST/models.json; shipped defaults changed — diff against $DEST/models.example.json"
+else
+  cp "$SRC/models.json" "$DEST/models.json"; printf '%s    created %s/models.json (edit to change role models)%s\n' "$c_dim" "$DEST" "$c_off"
+fi
 mkdir -p "$DEST/evidence"
 # migrate versioned config names from <= 2.5.0
 for old in "$DEST"/jev_task_routing_v*.json; do
@@ -258,12 +265,14 @@ if [[ $RC -eq 0 ]]; then
   cat <<EOF
 ${c_grn}Installation complete.${c_off}
   Policy   : $DEST/jev_task_routing.json  (v$POLICY_VERSION, source $SRC_COMMIT)
+  Models   : $DEST/models.json  (edit this to change harness/model/effort per role)
   Rules    : $DEST/ROUTING_POLICY.md
   Agents   : ${TARGETS[*]}  (block between jev-routing markers)
   Records  : $DEST/tasks/ and $DEST/evidence/   (git-ignored)
 
 Next steps:
-  1. Edit $DEST/repo_checks.json to match your CI (required checks, exact commands).
+  1. Edit $DEST/repo_checks.json to match your CI, and $DEST/models.json for role models
+     (check: python3 $DEST/resolve_models.py).
   2. export TYPESAFE_API_KEY=...   then: python3 $DEST/verify_routing.py --ping
   3. Run in SHADOW MODE for 30–50 real tasks before enabling dispatch (see README).
   4. git add $DEST ${TARGETS[*]} .gitignore && git commit -m "chore: install jev_task_routing v$POLICY_VERSION"

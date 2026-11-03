@@ -12,6 +12,7 @@ from collections import OrderedDict
 
 SRC = sys.argv[1]
 OUT = sys.argv[2]
+MODELS_OUT = sys.argv[3] if len(sys.argv) > 3 else None
 
 raw = open(SRC, "rb").read()
 src = json.loads(raw)
@@ -90,23 +91,49 @@ ROLE_META = {
 
 roles = O()
 for rid, r in src["roles"].items():
-    e = O(harness=r["harness"], model=r["model"], effort=r["effort"])
+    e = O(settings="models.json#/roles/" + rid)
     e.update(ROLE_META[rid])
     roles[rid] = e
+
+# models.json — the only place model settings live (MODEL-5)
+models = O()
+models["$schema"] = "./models.schema.json"
+models["version"] = "1.0.0"
+models["requires_policy_version"] = ">=2.5.2"
+models["note"] = "Edit this file to change which harness/model/effort each delegated role runs on. The policy file never carries model settings. Prompt overrides in a request still take precedence (MODEL-1)."
+models["default"] = O(harness=None, model=None, effort=None)
+models["roles"] = O((rid, O(harness=r["harness"], model=r["model"], effort=r["effort"])) for rid, r in src["roles"].items())
+models["active_profile"] = "standard"
+models["profiles"] = O(
+    standard=O(description="Settings as shipped; roles resolve from /roles.", roles=O()),
+    high_assurance=O(
+        description="Independent review on a model at least as strong as the implementer; use for security/data-sensitive repositories.",
+        roles=O(**{"task-verifier": O(harness="codex", model="gpt-6-astra", effort="high")}),
+    ),
+)
+models["router"] = O(
+    provider=src["jev"]["provider"],
+    base_url=src["jev"]["base_url"],
+    endpoint=src["jev"]["endpoint"],
+    method=src["jev"]["method"],
+    api_key_env=src["jev"]["api_key_env"],
+    model=src["jev"]["model"],
+    model_checked_on="2026-10-02",
+    availability_reverified=False,
+)
+models["adapters"] = O(
+    codex=O(efforts=["low", "medium", "high"], notes="verify effort strings against the installed codex adapter"),
+    agy=O(efforts=["low", "medium", "high"], notes="verify against the installed agy adapter"),
+    opencode=O(efforts=["low", "medium", "high", "max"], notes="'max' used by tester in shipped settings; confirm the adapter accepts it"),
+)
+models["rule_refs"] = ["MODEL-1", "MODEL-3", "MODEL-5"]
 
 # --------------------------------------------------------------------------
 # Jev: questions verbatim; everything else compact.
 # --------------------------------------------------------------------------
 j = src["jev"]
 jev = O(
-    provider=j["provider"],
-    base_url=j["base_url"],
-    endpoint=j["endpoint"],
-    method=j["method"],
-    api_key_env=j["api_key_env"],
-    model=j["model"],
-    model_checked_on="2026-10-02",
-    availability_reverified=False,
+    connection="models.json#/router",
     questions=copy.deepcopy(j["questions"]),
     required_choice_ids=src["decision_policy"]["required_choice_ids"],
     risk_question_ids=src["decision_policy"]["risk_question_ids"],
@@ -451,7 +478,7 @@ enums = O(
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
-VERSION = "2.5.1-draft"
+VERSION = "2.5.2-draft"
 task_record = copy.deepcopy(src["task_record_template"])
 task_record["policy_version"] = VERSION
 task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
@@ -495,7 +522,7 @@ cfg["provenance"] = O(
     source_sha256=sha,
     restructured_on="2026-11-03",
     patched_on="2026-11-03",
-    verbatim_sections=["jev.questions", "decision.thresholds", "roles.*.{harness,model,effort}", "workflows.*.{select_when,base_worker_roles,stages}", "enums (where present in source)", "templates.{evidence_packet,work_order,worker_question,task_record}"],
+    verbatim_sections=["jev.questions", "decision.thresholds", "models.json#/roles (harness,model,effort)", "workflows.*.{select_when,base_worker_roles,stages}", "enums (where present in source)", "templates.{evidence_packet,work_order,worker_question,task_record}"],
     semantic_changes=[
         "trusted flags needs_documentation, require_independent_review, needs_post_deployment_verification now have consumption rules",
         "inherited_risk_floor has a slot in templates.request and templates.task_record",
@@ -506,6 +533,7 @@ cfg["provenance"] = O(
         "2.5.1: new evidence_orders section with positive inspector/researcher triggers, host self-inspection cap, mandatory skip record, order defaults, output contracts, tool preflight",
         "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
         "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
+        "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
     ],
 )
 cfg["host"] = O(
@@ -520,15 +548,24 @@ mr = src["model_routing"]
 cfg["model_routing"] = O(
     applies_to="delegated_roles_only",
     default=copy.deepcopy(mr["default"]),
-    field_priority=mr["field_priority"],
+    models_file="models.json",
+    field_priority=[
+        "request.prompt_overrides.roles.<role_id>.<field>",
+        "request.prompt_overrides.default.<field>",
+        "models.profiles[models.active_profile].roles.<role_id>.<field>",
+        "models.roles.<role_id>.<field>",
+        "models.default.<field>",
+        "request.runtime_defaults.<field>",
+    ],
     missing_values=mr["missing_values"],
     resolve_fields_independently=True,
     on_conflicting_overrides="BLOCKED",
     on_incompatible_adapter_combination="BLOCKED",
     preserve_strings_verbatim=True,
     record_source_per_field=True,
-    rule_refs=["MODEL-1", "MODEL-2", "MODEL-3"],
+    rule_refs=["MODEL-1", "MODEL-2", "MODEL-3", "MODEL-5"],
 )
+cfg["models_file"] = "models.json"
 cfg["roles"] = roles
 cfg["delegation"] = O(
     dispatch_owner="current_host_session",
@@ -573,4 +610,9 @@ cfg["sources"] = O(checked_on=src["sources"]["checked_on"], official_docs=src["s
 with open(OUT, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
     f.write("\n")
+if MODELS_OUT:
+    with open(MODELS_OUT, "w", encoding="utf-8") as f:
+        json.dump(models, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print("wrote", MODELS_OUT)
 print("wrote", OUT, "sha256 of source:", sha)

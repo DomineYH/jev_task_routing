@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schemas/jev_task_routing.schema.json",
   "title": "Jev task routing policy configuration",
-  "description": "Schema for jev_task_routing.json (v2.5.1-draft) and the runtime objects it defines (request, evidence packet, work order, worker question, task record). Normative prose lives in ROUTING_POLICY.md; rule_refs fields point at its rule IDs.",
+  "description": "Schema for jev_task_routing.json (v2.5.2-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,6 +13,7 @@
     "provenance",
     "host",
     "model_routing",
+    "models_file",
     "roles",
     "delegation",
     "work_order",
@@ -112,7 +113,8 @@
         "field_priority",
         "missing_values",
         "on_conflicting_overrides",
-        "on_incompatible_adapter_combination"
+        "on_incompatible_adapter_combination",
+        "models_file"
       ],
       "properties": {
         "applies_to": {
@@ -148,6 +150,9 @@
         },
         "rule_refs": {
           "$ref": "#/$defs/ruleRefs"
+        },
+        "models_file": {
+          "type": "string"
         }
       }
     },
@@ -243,12 +248,7 @@
     "jev": {
       "type": "object",
       "required": [
-        "provider",
-        "base_url",
-        "endpoint",
-        "method",
-        "api_key_env",
-        "model",
+        "connection",
         "questions",
         "required_choice_ids",
         "risk_question_ids",
@@ -257,35 +257,8 @@
         "cache_policy"
       ],
       "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "base_url": {
-          "type": "string",
-          "format": "uri"
-        },
-        "endpoint": {
-          "type": "string",
-          "pattern": "^/"
-        },
-        "method": {
-          "enum": [
-            "POST"
-          ]
-        },
-        "api_key_env": {
-          "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]*$"
-        },
-        "model": {
-          "type": "string"
-        },
-        "model_checked_on": {
-          "type": "string",
-          "format": "date"
-        },
-        "availability_reverified": {
-          "type": "boolean"
+        "connection": {
+          "const": "models.json#/router"
         },
         "questions": {
           "type": "object",
@@ -1287,6 +1260,10 @@
           "$ref": "#/$defs/ruleRefs"
         }
       }
+    },
+    "models_file": {
+      "type": "string",
+      "pattern": "^models\\.json$"
     }
   },
   "$defs": {
@@ -1373,9 +1350,7 @@
     "role": {
       "type": "object",
       "required": [
-        "harness",
-        "model",
-        "effort",
+        "settings",
         "mission",
         "target_access",
         "may_write",
@@ -1385,17 +1360,9 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "harness": {
+        "settings": {
           "type": "string",
-          "minLength": 1
-        },
-        "model": {
-          "type": "string",
-          "minLength": 1
-        },
-        "effort": {
-          "type": "string",
-          "minLength": 1
+          "pattern": "^models\\.json#/roles/[a-z][a-z0-9-]*$"
         },
         "mission": {
           "type": "string",

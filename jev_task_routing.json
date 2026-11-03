@@ -1,6 +1,6 @@
 {
   "$schema": "./jev_task_routing.schema.json",
-  "version": "2.5.1-draft",
+  "version": "2.5.2-draft",
   "policy_doc": "ROUTING_POLICY.md",
   "purpose": "Route development work through the smallest adequate workflow using Jev for semantic classification, the current host coordinator for all task authority, and bounded worker assignments for execution.",
   "nature": "policy configuration; not a runtime enforcement implementation (see ENF-* in policy_doc)",
@@ -13,7 +13,7 @@
     "verbatim_sections": [
       "jev.questions",
       "decision.thresholds",
-      "roles.*.{harness,model,effort}",
+      "models.json#/roles (harness,model,effort)",
       "workflows.*.{select_when,base_worker_roles,stages}",
       "enums (where present in source)",
       "templates.{evidence_packet,work_order,worker_question,task_record}"
@@ -27,7 +27,8 @@
       "2.5.1: max_semantic_calls_per_task_revision 2 -> 5; evidence orders never consume it",
       "2.5.1: new evidence_orders section with positive inspector/researcher triggers, host self-inspection cap, mandatory skip record, order defaults, output contracts, tool preflight",
       "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
-      "2.5.1: config file renamed to version-agnostic jev_task_routing.json"
+      "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
+      "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it"
     ]
   },
   "host": {
@@ -52,11 +53,13 @@
       "model": null,
       "effort": null
     },
+    "models_file": "models.json",
     "field_priority": [
       "request.prompt_overrides.roles.<role_id>.<field>",
       "request.prompt_overrides.default.<field>",
-      "roles.<role_id>.<field>",
-      "model_routing.default.<field>",
+      "models.profiles[models.active_profile].roles.<role_id>.<field>",
+      "models.roles.<role_id>.<field>",
+      "models.default.<field>",
       "request.runtime_defaults.<field>"
     ],
     "missing_values": [
@@ -73,14 +76,14 @@
     "rule_refs": [
       "MODEL-1",
       "MODEL-2",
-      "MODEL-3"
+      "MODEL-3",
+      "MODEL-5"
     ]
   },
+  "models_file": "models.json",
   "roles": {
     "planner": {
-      "harness": "codex",
-      "model": "gpt-6-astra",
-      "effort": "medium",
+      "settings": "models.json#/roles/planner",
       "mission": "Produce or revise the executable implementation plan under a planning order; return a proposal.",
       "target_access": "read_only",
       "may_write": [
@@ -103,9 +106,7 @@
       ]
     },
     "implementer": {
-      "harness": "codex",
-      "model": "gpt-6.1-sol",
-      "effort": "high",
+      "settings": "models.json#/roles/implementer",
       "mission": "Execute an issued implementation, prototype or repair order within its scope and accepted testing_mode.",
       "target_access": "write_in_scope",
       "may_write": [
@@ -131,9 +132,7 @@
       ]
     },
     "task-verifier": {
-      "harness": "agy",
-      "model": "gemini-3.8-flash",
-      "effort": "high",
+      "settings": "models.json#/roles/task-verifier",
       "mission": "Independently review the fixed current diff and evidence; report PASS/FAIL/BLOCKED findings to the host.",
       "target_access": "read_only",
       "may_write": [
@@ -160,9 +159,7 @@
       ]
     },
     "inspector": {
-      "harness": "agy",
-      "model": "gemini-3.8-flash",
-      "effort": "high",
+      "settings": "models.json#/roles/inspector",
       "mission": "Fill the evidence packet from repository facts (code, callers, tests, execution status) for a named gap; return a packet delta with source refs.",
       "target_access": "read_only",
       "may_write": [
@@ -187,9 +184,7 @@
       ]
     },
     "researcher": {
-      "harness": "agy",
-      "model": "gemini-3.8-flash",
-      "effort": "high",
+      "settings": "models.json#/roles/researcher",
       "mission": "Resolve a specific external API/dependency/platform fact from official sources; return a fixed-format fact record with source URL.",
       "target_access": "none",
       "may_write": [
@@ -214,9 +209,7 @@
       ]
     },
     "tester": {
-      "harness": "opencode",
-      "model": "glm-5.3-flash",
-      "effort": "max",
+      "settings": "models.json#/roles/tester",
       "mission": "Execute uncovered specialized integration/E2E/performance/migration/post-deployment checks and report actuals.",
       "target_access": "read_only",
       "may_write": [
@@ -241,9 +234,7 @@
       ]
     },
     "advisor": {
-      "harness": "codex",
-      "model": "gpt-6-astra",
-      "effort": "medium",
+      "settings": "models.json#/roles/advisor",
       "mission": "Give the host one evidence-based second opinion on a specific unresolved technical decision.",
       "target_access": "read_only",
       "may_write": [
@@ -331,14 +322,7 @@
     ]
   },
   "jev": {
-    "provider": "typesafe",
-    "base_url": "https://api.typesafe.ai",
-    "endpoint": "/v1/systemone",
-    "method": "POST",
-    "api_key_env": "TYPESAFE_API_KEY",
-    "model": "jev-1.13.0",
-    "model_checked_on": "2026-10-02",
-    "availability_reverified": false,
+    "connection": "models.json#/router",
     "questions": {
       "task_type": {
         "type": "choice",
@@ -1717,7 +1701,7 @@
       "task_id": null,
       "revision": null,
       "state_digest": null,
-      "policy_version": "2.5.1-draft",
+      "policy_version": "2.5.2-draft",
       "router_requested_model": null,
       "router_actual_model": null,
       "status": null,

@@ -48,7 +48,7 @@ def load_json(path, rep):
 
 
 def check_files(routing, rep):
-    required = ["jev_task_routing.json", "jev_task_routing.schema.json", "ROUTING_POLICY.md", "verify_routing.py"]
+    required = ["jev_task_routing.json", "jev_task_routing.schema.json", "models.json", "models.schema.json", "resolve_models.py", "ROUTING_POLICY.md", "verify_routing.py"]
     for name in required:
         p = routing / name
         if p.is_file():
@@ -85,6 +85,68 @@ def check_schema(cfg, schema, rep):
             print("         - /" + "/".join(map(str, e.path)) + ": " + e.message[:160])
     else:
         rep.ok("config validates against schema")
+
+
+def check_models(routing, cfg, rep):
+    models = load_json(routing / "models.json", rep)
+    mschema = load_json(routing / "models.schema.json", rep)
+    if not models or not mschema:
+        return None
+    try:
+        from jsonschema import Draft202012Validator, FormatChecker
+        errs = list(Draft202012Validator(mschema, format_checker=FormatChecker()).iter_errors(models))
+        if errs:
+            rep.error(f"models.json violates models.schema.json ({len(errs)} error(s))")
+            for e in errs[:8]:
+                print("         - /" + "/".join(map(str, e.path)) + ": " + e.message[:160])
+        else:
+            rep.ok("models.json validates against models.schema.json")
+    except ImportError:
+        rep.warning("jsonschema missing; models.json not schema-validated")
+    # every policy role must resolve (MODEL-5)
+    prof = models.get("active_profile")
+    if prof not in models.get("profiles", {}):
+        rep.error(f"models.active_profile '{prof}' is not defined in models.profiles")
+    prof_roles = models.get("profiles", {}).get(prof, {}).get("roles", {})
+    unresolved = []
+    for rid, role in cfg.get("roles", {}).items():
+        ref = role.get("settings", "")
+        if ref != f"models.json#/roles/{rid}":
+            rep.error(f"policy role '{rid}' settings ref is '{ref}', expected 'models.json#/roles/{rid}'")
+        for f in ("harness", "model", "effort"):
+            v = None
+            for layer in (prof_roles.get(rid, {}), models.get("roles", {}).get(rid, {}), models.get("default", {})):
+                x = layer.get(f)
+                if x is not None and str(x).strip():
+                    v = x
+                    break
+            if v is None:
+                unresolved.append(f"{rid}.{f}")
+    if unresolved:
+        rep.warning(f"fields unset in models.json (will fall back to request.runtime_defaults or verified launch defaults): {unresolved}")
+    else:
+        rep.ok(f"all {len(cfg.get('roles', {}))} policy roles resolve harness/model/effort from models.json (profile '{prof}')")
+    extra = set(models.get("roles", {})) - set(cfg.get("roles", {}))
+    if extra:
+        rep.warning(f"models.json defines roles not registered in the policy (ignored): {sorted(extra)}")
+    # static adapter preflight (MODEL-3)
+    for rid in cfg.get("roles", {}):
+        merged = dict(models.get("default", {}))
+        merged.update({k: v for k, v in models.get("roles", {}).get(rid, {}).items() if v})
+        merged.update({k: v for k, v in prof_roles.get(rid, {}).items() if v})
+        h, e, m = merged.get("harness"), merged.get("effort"), merged.get("model")
+        ad = models.get("adapters", {}).get(h)
+        if ad:
+            if e and e not in ad.get("efforts", []):
+                rep.error(f"{rid}: effort '{e}' not allowed by adapters.{h}.efforts {ad.get('efforts')} (MODEL-3)")
+            if ad.get("models") and m not in ad["models"]:
+                rep.error(f"{rid}: model '{m}' not in adapters.{h}.models (MODEL-3)")
+        elif h:
+            rep.warning(f"{rid}: harness '{h}' has no adapters entry; effort/model cannot be preflighted statically")
+    router = models.get("router", {})
+    if router.get("model"):
+        rep.ok(f"router: {router.get('provider')} {router.get('model')} via {router.get('api_key_env')}")
+    return models
 
 
 def check_cross_refs(cfg, policy_md, rep):
@@ -198,15 +260,18 @@ def check_installed_marker(routing, cfg, rep):
         rep.ok(f"installed policy version {cfg.get('version')}")
 
 
-def check_env(cfg, rep):
-    var = cfg.get("jev", {}).get("api_key_env", "TYPESAFE_API_KEY")
+def check_env(cfg, rep, models=None):
+    var = (models or {}).get("router", {}).get("api_key_env") or cfg.get("jev", {}).get("api_key_env", "TYPESAFE_API_KEY")
     if os.environ.get(var):
         rep.ok(f"env {var} is set")
     else:
         rep.warning(f"env {var} is not set (required before any Jev call)")
 
 
-def ping(cfg, rep):
+def ping(cfg, rep, models):
+    jc = dict(models["router"])
+    jc["questions"] = cfg["jev"]["questions"]
+    cfg = {"jev": jc}
     var = cfg["jev"]["api_key_env"]
     key = os.environ.get(var)
     if not key:
@@ -256,7 +321,7 @@ def main():
     rep = Report(quiet=a.quiet)
     print(f"verify_routing: {project}")
 
-    print("[1/7] files")
+    print("[1/8] files")
     check_files(routing, rep)
     cfg = load_json(routing / "jev_task_routing.json", rep)
     schema = load_json(routing / "jev_task_routing.schema.json", rep)
@@ -266,21 +331,26 @@ def main():
         print(f"\nRESULT: FAIL ({rep.fail} failure(s))")
         return 1
 
-    print("[2/7] schema")
+    print("[2/8] schema")
     check_schema(cfg, schema, rep)
-    print("[3/7] cross references")
+    print("[3/8] models (MODEL-1/3/5)")
+    models = check_models(routing, cfg, rep)
+    print("[4/8] cross references")
     check_cross_refs(cfg, policy_md, rep)
-    print("[4/7] agent instructions")
+    print("[5/8] agent instructions")
     check_agent_block(project, rep)
-    print("[5/7] task records (EVID-7)")
+    print("[6/8] task records (EVID-7)")
     check_task_records(routing, rep)
-    print("[6/7] install record")
+    print("[7/8] install record")
     check_installed_marker(routing, cfg, rep)
-    print("[7/7] environment")
-    check_env(cfg, rep)
+    print("[8/8] environment")
+    check_env(cfg, rep, models)
     if a.ping:
         print("[+]   jev endpoint ping")
-        ping(cfg, rep)
+        if models:
+            ping(cfg, rep, models)
+        else:
+            rep.error("--ping needs a valid models.json#/router")
 
     status = "FAIL" if rep.fail else "PASS"
     print(f"\nRESULT: {status} ({rep.fail} failure(s), {rep.warn} warning(s))")

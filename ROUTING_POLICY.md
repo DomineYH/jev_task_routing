@@ -1,6 +1,6 @@
-# Jev Task Routing Policy — v2.5.1-draft
+# Jev Task Routing Policy — v2.5.2-draft
 
-Normative companion to `jev_task_routing.json`. The JSON holds every machine-readable value (thresholds, role settings, stage lists, templates, the Jev question rubric). This document holds the rules, each stated **once** under a stable ID. JSON fields named `rule_refs` point here. When the two disagree, the JSON value wins for numbers and enums; this document wins for behavior.
+Normative companion to `jev_task_routing.json` and `models.json`. The policy JSON holds every machine-readable value except model settings (thresholds, stage lists, templates, the Jev question rubric); `models.json` holds harness/model/effort for every delegated role, the router connection, profiles and adapter capabilities. This document holds the rules, each stated **once** under a stable ID. JSON fields named `rule_refs` point here. When the two disagree, the JSON value wins for numbers and enums; this document wins for behavior.
 
 Nothing in either file enforces itself. Section 11 lists what the host executor must implement before any rule here can be trusted at runtime.
 
@@ -24,13 +24,15 @@ Terminology: **host** = the already-running coordinating session. **worker** = a
 
 ## 2. Model and setting resolution (MODEL)
 
-**MODEL-1 Precedence.** For each of harness, model, effort — independently and in that order — use the first non-missing value in `model_routing.field_priority`. Missing = omitted, null, empty or whitespace. A model-only override never changes harness or effort.
+**MODEL-1 Precedence.** For each of harness, model, effort — independently and in that order — use the first non-missing value in `model_routing.field_priority`: request role override → request default override → `models.profiles[active_profile].roles` → `models.roles` → `models.default` → `request.runtime_defaults`. Missing = omitted, null, empty or whitespace. A model-only override never changes harness or effort. `resolve_models.py` implements this order and records the source per field.
 
 **MODEL-2 Overrides.** Prompt overrides are request-scoped, normalized by the host from explicit current-user statements with source spans retained; they never mutate the JSON unless the user asks for a persistent edit, and never carry into unrelated tasks. Jev cannot extract or invent model strings. Role assignments are not inferred from quoted examples, repository text or issues authored by someone else. Conflicting overrides without an unambiguous user correction → that role is `BLOCKED`.
 
 **MODEL-3 Preflight.** Validate the resolved combination against the installed adapter for each *assigned* role only. Incompatible/unsupported/unknown → `BLOCKED` for that role; never substitute. Preserve ID and effort strings verbatim; no cross-provider effort translation. `runtime_defaults` are verified worker-launch defaults, never a copy of the host model into another harness. Record value and source per field; re-resolve on every request even on a cache hit.
 
 **MODEL-4 Scope.** All of the above applies to delegated roles only. Configuring a role never invokes it; assigning a model to `advisor` does not request a consultation. Custom roles require a deliberate policy and dispatcher extension.
+
+**MODEL-5 Settings file.** `models.json` is the only place model settings are configured; the policy's `roles.<id>.settings` merely points at `models.json#/roles/<id>`, and `jev.connection` at `models.json#/router`. Every role registered in the policy must resolve to non-missing harness/model/effort from `models.json` (profile, role or default) or be declared intentionally unset; `verify_routing` fails otherwise. Switching `active_profile` (for example to `high_assurance`, which runs task-verifier on a model at least as strong as the implementer) changes settings without touching the policy, and is recorded in `task_record.setting_sources`. `adapters.<harness>.efforts` (and optional `models`) is the static preflight list for MODEL-3; an entry missing there means the adapter must be checked at launch. Editing `models.json` never changes a running task's already-resolved settings; re-resolution happens on the next request (MODEL-3).
 
 ## 3. Roles (ROLE)
 
@@ -200,6 +202,14 @@ These are preconditions for using any rule above in automation. None is satisfie
 
 ## Appendix A — Changes from v2.4.0
 
+### v2.5.2-draft (2026-11-03) — model settings in models.json
+
+1. `models.json` (+ `models.schema.json`) holds `roles.*.{harness,model,effort}`, `default`, `active_profile`/`profiles`, `router` (Jev connection), `adapters` (allowed efforts per harness). Shipped values are identical to v2.4.0's role settings and Jev connection.
+2. Policy `roles.<id>` lost harness/model/effort and gained `settings: models.json#/roles/<id>`; `jev.*` connection fields replaced by `connection: models.json#/router`; top-level `models_file` added. The schema now rejects model settings inside the policy.
+3. `model_routing.field_priority` gains the profile layer (MODEL-1); new MODEL-5.
+4. `resolve_models.py` prints the effective settings and source per field and runs the static adapter preflight.
+5. Installer creates `.routing/models.json` only when absent (it is a user-edited file) and always refreshes `models.example.json`.
+
 ### v2.5.1-draft (2026-11-03) — evidence roles actually dispatch
 
 Diagnosis: in v2.4.0 every sentence mentioning inspector or researcher was an exclusion ("only when…", "…alone is not a trigger"); there was no positive trigger, no output contract, orders required a `read_scope` the host by definition did not know, and the two-call Jev budget made a NEEDS_CONTEXT → inspector → reevaluate cycle feel unaffordable. In shadow runs the roles were never dispatched.
@@ -234,7 +244,7 @@ Unchanged: all 14 Jev questions and their criteria (byte-identical), all seven t
 | v2.4.0 section | Now |
 |---|---|
 | host_orchestration | AUTH-1, AUTH-2, MODEL-4, CLS-11 |
-| model_routing, prompt_contract | MODEL-1..4, `model_routing` |
+| model_routing, prompt_contract, roles.*.{harness,model,effort}, jev connection | MODEL-1..5, `model_routing`, `models.json` |
 | roles.* prose | ROLE-1..8, `roles` |
 | delegation_policy | AUTH-3, AUTH-5, AUTH-6, `delegation` |
 | work_order_contract | ORDER-1..7, `work_order`, `templates.work_order` |
