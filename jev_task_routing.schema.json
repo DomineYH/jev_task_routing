@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schemas/jev_task_routing.schema.json",
   "title": "Jev task routing policy configuration",
-  "description": "Schema for jev_task_routing.json (v2.5.2-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
+  "description": "Schema for jev_task_routing.json (v2.5.3-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,6 +11,7 @@
     "purpose",
     "nature",
     "provenance",
+    "precedence",
     "host",
     "model_routing",
     "models_file",
@@ -82,7 +83,8 @@
         "owner",
         "configurable_as_role",
         "spawn_as_worker",
-        "retired_role_ids"
+        "retired_role_ids",
+        "writes_product_code"
       ],
       "properties": {
         "owner": {
@@ -102,6 +104,12 @@
         },
         "rule_refs": {
           "$ref": "#/$defs/ruleRefs"
+        },
+        "writes_product_code": {
+          "const": false
+        },
+        "aliases": {
+          "$ref": "#/$defs/stringList"
         }
       }
     },
@@ -182,7 +190,8 @@
         "worker_to_worker_dispatch",
         "worker_self_delegation",
         "work_order_required",
-        "require_authenticated_host_order"
+        "require_authenticated_host_order",
+        "liveness"
       ],
       "properties": {
         "dispatch_owner": {
@@ -214,6 +223,55 @@
         },
         "rule_refs": {
           "$ref": "#/$defs/ruleRefs"
+        },
+        "liveness": {
+          "type": "object",
+          "required": [
+            "completion_signals",
+            "heartbeat_interval_ms",
+            "silent_checks_before_blocked",
+            "exit_without_report",
+            "host_actions_while_waiting",
+            "host_actions_forbidden_while_waiting",
+            "minimal_implementation_workers"
+          ],
+          "properties": {
+            "completion_signals": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            },
+            "heartbeat_interval_ms": {
+              "type": "integer",
+              "minimum": 10000
+            },
+            "silent_checks_before_blocked": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "exit_without_report": {
+              "type": "string"
+            },
+            "host_actions_while_waiting": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "host_actions_forbidden_while_waiting": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "minimal_implementation_workers": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -1264,6 +1322,28 @@
     "models_file": {
       "type": "string",
       "pattern": "^models\\.json$"
+    },
+    "precedence": {
+      "type": "object",
+      "required": [
+        "description",
+        "order"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "order": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "string"
+          }
+        },
+        "rule_refs": {
+          "$ref": "#/$defs/ruleRefs"
+        }
+      }
     }
   },
   "$defs": {

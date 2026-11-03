@@ -174,6 +174,15 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 
 하나라도 없으면 해당 역할만 BLOCKED로 두고 나머지만 켭니다(ENF-5).
 
+## 예시: Herdr 프로젝트 문서
+
+`examples/herdr/`에 이 정책과 함께 쓰는 프로젝트 문서의 정리본이 있습니다.
+
+- `AGENTS.md` — 호스트 규칙(코드는 워커가 작성, 문서 우선순위, 워커 수 최소화는 구현 워커에만, 대기·생존 확인, 권한) + 라우팅 블록
+- `herdr_orchestrator.md` — Herdr 운용 메커니즘만(점검, 재사용·분할, 지시 전달, 대기, 보고서 처리, 통합, 정리). 정책과 겹치던 문장은 규칙 ID 포인터로 대체
+
+문서 간 우선순위(AUTH-7): 사용자 승인·저장소 보호 → 현재 작업 지시서 → 정책 → 하네스 운용 문서 → AGENTS.md의 나머지 산문.
+
 ## 업데이트
 
 같은 명령을 다시 실행하면 됩니다. 변경된 파일은 `.bak`으로 백업되고, 지시 블록은 마커 사이만 교체되며, `repo_checks.json`과 `tasks/`는 건드리지 않습니다.
@@ -200,6 +209,7 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 
 ## 버전
 
+- **2.5.3-draft** — AGENTS.md·herdr_orchestrator.md와 대조해 상충 해소: 호스트는 제품 코드를 직접 쓰지 않음(AUTH-1), 문서 우선순위(AUTH-7), 검토 독립성은 '다른 세션 필수·다른 모델 권장'(ROLE-7), 워커 최소화는 구현 워커에만(WF-2), 대기·heartbeat·보고 없는 종료 처리(ORDER-8, `delegation.liveness`). `examples/herdr/` 추가.
 - **2.5.2-draft** — 모델 설정을 `models.json`으로 분리(역할별 harness/model/effort, 기본값, 프로필, 라우터 연결, 어댑터 허용 effort). 정책 파일은 `settings: models.json#/roles/<id>`로 참조만 하며 스키마가 정책 안의 모델 설정을 거부. `resolve_models.py` 추가. 설치 시 `models.json`은 없을 때만 생성.
 - **2.5.1-draft** — inspector/researcher가 전혀 호출되지 않던 문제 수정: 긍정 발동 트리거(INS-1..7, RES-1..5), 호스트 자가 조사 상한(8파일), skip 기록 의무, 조사 지시서 기본값·출력 계약·도구 preflight 추가. Jev 호출 예산 2→5회(조사 지시서는 예산 미소모). 설정 파일명을 `jev_task_routing.json`으로 변경. Jev 14문항·임계값은 그대로.
 - **2.5.0-draft** — v2.4.0을 기계 판독 설정 + 규칙 ID 문서로 분리. 선언만 되고 소비되지 않던 trusted flag 3개(`needs_documentation`, `require_independent_review`, `needs_post_deployment_verification`)와 `inherited_risk_floor`에 소비 규칙·슬롯 부여. Jev 14문항·임계값·역할 설정·스테이지는 v2.4.0과 동일. 상세는 `ROUTING_POLICY.md` 부록 A.

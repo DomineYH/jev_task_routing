@@ -1,8 +1,10 @@
 <!-- jev-routing:start (managed by init_routing.sh — do not edit between markers) -->
-## Task routing (jev_task_routing v2.5.2-draft)
+## Task routing (jev_task_routing v2.5.3-draft)
 
 - Policy (rule IDs): `.routing/ROUTING_POLICY.md` · Config: `.routing/jev_task_routing.json` · Models: `.routing/models.json` (the only place harness/model/effort live; MODEL-5) · Schemas: `.routing/*.schema.json`
-- You are the **host** (AUTH-1). Only the host issues work orders and launches workers (AUTH-2). No worker without an issued, schema-valid work order (ORDER-1).
+- You are the **host** (a.k.a. coordinator; AUTH-1). You never write product code yourself — implementer orders do. Only the host issues work orders and launches workers (AUTH-2). No worker without an issued, schema-valid work order (ORDER-1).
+- Precedence when documents disagree (AUTH-7): user authorization & repository safeguards → current order → this policy → the harness operations doc (how to run panes/worktrees) → other prose in this file.
+- After dispatch, wait for RESULT_SUBMITTED / NEEDS_DECISION / BLOCKED / heartbeat timeout; check a silent pane every 600 000 ms, two silent checks → BLOCKED and reissue. An exit without a report is not a result (ORDER-8).
 - Per task: build the evidence packet (EVID-1..5; read at most 8 files yourself) → attest `trusted_flags` from your own inspection only, `null` when unknown (EVID-5) → **evaluate `evidence_orders.inspector_triggers` (INS-*) and `researcher_triggers` (RES-*)**; if any holds, issue that evidence order with `order_defaults` BEFORE calling Jev, or record a skip reason — silent skipping is a violation (EVID-6, EVID-7) → one Jev call with all 14 questions (CLS-1) → apply `decision.rules` in order → write `.routing/tasks/<task_id>.json` (`templates.task_record`, including `evidence_orders_evaluated`).
 - Prefix every `evidence_packet.unknowns` entry with `repo:` or `external:`; set `external_contracts.status = unverified` when an external API contract changes and no local authoritative source covers it.
 - Repository-required checks live in `.routing/repo_checks.json`; copy them into `verification_plan` entries with `required_by: repository` (VER-5). If `repo_checks.json` says `require_review: true`, attest `require_independent_review: true` (WF-3).

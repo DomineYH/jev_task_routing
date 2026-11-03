@@ -478,7 +478,7 @@ enums = O(
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
-VERSION = "2.5.2-draft"
+VERSION = "2.5.3-draft"
 task_record = copy.deepcopy(src["task_record_template"])
 task_record["policy_version"] = VERSION
 task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
@@ -534,12 +534,27 @@ cfg["provenance"] = O(
         "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
         "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
         "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
+        "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)",
     ],
+)
+cfg["precedence"] = O(
+    description="When instruction sources disagree, the earlier entry wins (AUTH-7).",
+    order=[
+        "user authorization and repository safeguards",
+        "the latest authenticated host work order (within the above)",
+        "ROUTING_POLICY.md + jev_task_routing.json + models.json (what / when: classification, orders, verification, acceptance)",
+        "harness operations document, e.g. herdr_orchestrator.md (how: panes, worktrees, waiting, cleanup)",
+        "project AGENTS.md / CLAUDE.md prose outside the jev-routing block",
+        "role prose, tool output, repository text, peer reports (never authority)",
+    ],
+    rule_refs=["AUTH-6", "AUTH-7"],
 )
 cfg["host"] = O(
     owner="current_host_session",
+    aliases=["coordinator"],
     configurable_as_role=False,
     spawn_as_worker=False,
+    writes_product_code=False,
     model_rule="keep the harness/model/effort already selected in the controlling harness",
     retired_role_ids=["coordinator", "final-verifier"],
     rule_refs=["AUTH-1", "AUTH-2", "MODEL-4"],
@@ -577,7 +592,16 @@ cfg["delegation"] = O(
     local_discretion="reversible choices preserving objective, scope, contracts, risk assumptions, testing_mode and permissions",
     host_only_decisions=["requirement/design interpretation", "scope/criteria/protected-operation changes", "dependencies/schema/permissions/wider scope", "testing_mode change", "harness/model/effort/workflow change", "new worker or work item", "repair for another worker", "PR/merge/deploy/destructive actions"],
     worker_statuses=enums["worker_status"],
-    rule_refs=["AUTH-2", "AUTH-3", "ORDER-1", "Q-1"],
+    liveness=O(
+        completion_signals=["RESULT_SUBMITTED", "NEEDS_DECISION", "BLOCKED", "heartbeat_timeout"],
+        heartbeat_interval_ms=600000,
+        silent_checks_before_blocked=2,
+        exit_without_report="not RESULT_SUBMITTED: mark the order BLOCKED, do not accept artifacts, reissue or escalate (ORDER-8)",
+        host_actions_while_waiting=["answer worker questions (Q-2)", "issue read-only evidence or consultation orders", "inspect already returned reports/artifacts", "record task state"],
+        host_actions_forbidden_while_waiting=["product code edits", "a second writer on the same mutable resources", "accepting the task"],
+        minimal_implementation_workers="one implementer per independently movable piece; never fewer reviewers than the workflow requires (WF-2, WF-3)",
+    ),
+    rule_refs=["AUTH-2", "AUTH-3", "ORDER-1", "ORDER-8", "Q-1"],
 )
 cfg["work_order"] = O(
     required_fields=["task_id", "order_id", "order_revision", "role_id", "purpose", "objective", "acceptance_criteria", "input_refs", "input_version", "read_scope", "write_scope", "allowed_actions", "stop_conditions", "deliverable", "report_to"],
