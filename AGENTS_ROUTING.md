@@ -1,5 +1,5 @@
 <!-- jev-routing:start (managed by init_routing.sh — do not edit between markers) -->
-## Task routing (jev_task_routing v2.5.3-draft)
+## Task routing (jev_task_routing v2.5.4-draft)
 
 - Policy (rule IDs): `.routing/ROUTING_POLICY.md` · Config: `.routing/jev_task_routing.json` · Models: `.routing/models.json` (the only place harness/model/effort live; MODEL-5) · Schemas: `.routing/*.schema.json`
 - You are the **host** (a.k.a. coordinator; AUTH-1). You never write product code yourself — implementer orders do. Only the host issues work orders and launches workers (AUTH-2). No worker without an issued, schema-valid work order (ORDER-1).

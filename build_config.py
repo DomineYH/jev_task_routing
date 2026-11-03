@@ -216,6 +216,7 @@ decision = O(
         O(id="CLS-5", when="task_type==other OR work_mode==other (confident)", then="status=NOT_APPLICABLE; no workers"),
         O(id="CLS-6", when="work_mode==emergency AND active_incident_related_to_task!=true", then="status=NEEDS_CONTEXT; read-only incident triage only"),
         O(id="CLS-7", when="needs_context > context_clear_max OR trusted needs_context==true OR unresolved risk band OR task/mode contradiction", then="status=NEEDS_CONTEXT"),
+        O(id="CLS-7b", when="task_type==analysis AND work_mode==delivery", then="status=NEEDS_CONTEXT; ask whether a production change is requested (-> delivery with a concrete task_type) or not (-> exploration); never start delivery work on an analysis task"),
         O(id="CLS-8", when="task_type==mixed (confident)", then="status=NEEDS_DECOMPOSITION; children inherit parent risk floor"),
         O(id="CLS-9", when="testing_mode==needs_context OR tdd guard fails (VER-3)", then="status=NEEDS_CONTEXT"),
         O(id="CLS-10", when="no rule above fired", then="status=READY_FOR_PREFLIGHT; select workflow by (mode, risk); roles remain candidates until ordered (AUTH-2)"),
@@ -365,14 +366,14 @@ for sid, (owner, summary, refs) in STAGE.items():
 MOD = {
     "bug_fix": ("task_type==bug_fix", ["regression check retained", "before/after evidence", "environment failure != reproduced defect"]),
     "refactor": ("task_type==refactor", ["existing behavior protected", "intentional outcome changes separated", "no artificial red phase"]),
-    "ui_ux": ("touches_ui==true", ["rendered output", "accessibility behavior", "interactions", "affected viewport sizes"]),
-    "database": ("data_sensitive==true OR migration in scope", ["migration with representative nonproduction data", "compatibility", "integrity", "recovery"]),
-    "api_integration": ("touches_external_api==true", ["request/response compatibility", "errors/timeouts/malformed data/retries", "mock vs real connectivity distinguished"]),
+    "ui_ux": ("task_type==ui_ux OR touches_ui==true", ["rendered output", "accessibility behavior", "interactions", "affected viewport sizes"]),
+    "database": ("task_type==database OR data_sensitive==true OR migration in scope", ["migration with representative nonproduction data", "compatibility", "integrity", "recovery"]),
+    "api_integration": ("task_type==api_integration OR touches_external_api==true", ["request/response compatibility", "errors/timeouts/malformed data/retries", "mock vs real connectivity distinguished"]),
     "dependency_update": ("task_type==dependency_update", ["version compatibility", "configuration", "runtime consequences", "never auto-minor"]),
     "performance": ("task_type==performance", ["reproducible baseline", "load and environment recorded", "resulting metrics", "behavior preservation"]),
     "tests": ("task_type==tests", ["test intent and assertions validated", "no skipped/relaxed tests hiding regressions"]),
     "infrastructure": ("task_type==infrastructure OR production_impact==true", ["configuration", "build/deploy validation", "failure behavior", "recovery paths"]),
-    "security": ("security_sensitive==true", ["negative authorization cases", "trust boundaries", "secret handling", "regression coverage"]),
+    "security": ("task_type==security OR security_sensitive==true", ["negative authorization cases", "trust boundaries", "secret handling", "regression coverage"]),
     "docs": ("needs_documentation==true OR task_type==docs", ["documentation/changelog updated for changed behavior", "links/rendering checked", "not a substitute for behavioral checks"]),
 }
 modifiers = O()
@@ -461,7 +462,7 @@ verification = O(
 # --------------------------------------------------------------------------
 fv = src["evidence_preparation"]["field_values"]
 enums = O(
-    change_kind=fv["change_kind"],
+    change_kind=fv["change_kind"][:1] + ["test_only"] + fv["change_kind"][1:],  # 2.5.4: test_only added
     spec_status=fv["behavior.spec_status"],
     test_seam_status=fv["test_seam.status"],
     existing_check_result=fv["existing_checks.last_result"],
@@ -478,7 +479,7 @@ enums = O(
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
-VERSION = "2.5.3-draft"
+VERSION = "2.5.4-draft"
 task_record = copy.deepcopy(src["task_record_template"])
 task_record["policy_version"] = VERSION
 task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
@@ -534,6 +535,7 @@ cfg["provenance"] = O(
         "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
         "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
         "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
+        "2.5.4: modifiers ui_ux/database/security/api_integration also activate on their task_type (MOD-1); CLS-7b analysis x delivery -> NEEDS_CONTEXT; change_kind gains test_only",
         "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)",
     ],
 )

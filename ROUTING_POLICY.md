@@ -1,4 +1,4 @@
-# Jev Task Routing Policy — v2.5.3-draft
+# Jev Task Routing Policy — v2.5.4-draft
 
 Normative companion to `jev_task_routing.json` and `models.json`. The policy JSON holds every machine-readable value except model settings (thresholds, stage lists, templates, the Jev question rubric); `models.json` holds harness/model/effort for every delegated role, the router connection, profiles and adapter capabilities. This document holds the rules, each stated **once** under a stable ID. JSON fields named `rule_refs` point here. When the two disagree, the JSON value wins for numbers and enums; this document wins for behavior.
 
@@ -82,6 +82,8 @@ Settings and structured fields are in `roles`. Only behavior that the JSON canno
 
 **EVID-1 Position and owner.** Intake happens before the first Jev call and the resulting packet (`templates.evidence_packet`) is reused through scope_check, planning, implementation and review. The host owns intake, may reuse a current authorized evidence packet, and alone may issue bounded read-only inspector/researcher orders for a genuine gap. No worker invokes an explorer or Jev. A provisional classification never authorizes product writes. Do not call Jev to decide whether to perform routine intake.
 
+**EVID-2a Test-only changes.** A change that touches only test code, fixtures or expectations is recorded as `change_kind = test_only`, not `nonbehavioral`: it keeps the parent risk floor, requires the independent intent review in `revalidation.test_expectations_only` (VER-10), and is never automatically minor. `checks_only` remains valid for it only when no assertion or expected value changes meaning.
+
 **EVID-2 Method.** Reuse current scoped evidence; otherwise read the requested artifact, directly affected implementation and callers, nearest relevant tests and test configuration. No whole-repository scan. Record behavioral complexity, expectations and testability as observable facts with source refs; keep *unknown* distinct from absent, false or passed. Greenfield/empty scope is not a blocker: record the observed empty scope, accepted I/O example and project test conventions.
 
 **EVID-3 Diagnostics.** Start with reads. Run a focused diagnostic only when needed to answer a routing question and authorized in an isolated environment. Never install frameworks, run the whole suite, modify production data or build a harness merely to classify. `not_run` is neither failure nor pass. A verified nonbehavioral diff, read-only request or already sufficient packet needs no separate exploration — but confirm the artifact rather than trust labels like "just CSS".
@@ -112,6 +114,8 @@ Rule expressions are in `decision.rules`; this section fixes their meaning.
 
 **CLS-7 Context.** `needs_context` > `context_clear_max`, trusted `needs_context` true, an unresolved risk band, or a task/mode contradiction → `NEEDS_CONTEXT`. High risk already established by a strong signal does not require clearing every other dimension; the high-risk plan must address them.
 
+**CLS-7b Analysis in delivery mode.** `task_type == analysis` together with `work_mode == delivery` is a contradiction, not a route: return `NEEDS_CONTEXT` and ask whether a production change is actually requested (then reclassify with a concrete task type) or not (then exploration). Never start delivery stages on an analysis task.
+
 **CLS-8 Decomposition.** A confident `mixed` → `NEEDS_DECOMPOSITION`. Split by independently verifiable outcomes, classify each atomic child, preserve the parent risk floor and permissions. Splitting never removes safeguards.
 
 **CLS-9 Testing-mode abstention.** `testing_mode == needs_context` or any VER-3 guard failure → `NEEDS_CONTEXT`; it is never an executable mode and never an implementer fallback.
@@ -140,7 +144,7 @@ Stage lists live in `workflows`; one-line stage contracts in `stages`.
 
 ## 8. Modifiers (MOD)
 
-**MOD-1 Activation.** Apply the primary task-type modifier plus every flag-driven modifier whose `activate_when` holds (`modifiers`). Modifiers add verification requirements to the plan; they never select a testing mode, a workflow or a role.
+**MOD-1 Activation.** Apply the modifier named by the primary task type (bug_fix, refactor, ui_ux, database, security, api_integration, dependency_update, performance, tests, infrastructure, docs) **and** every flag-driven modifier whose `activate_when` holds; the two routes are independent, so a `security` task gets the security modifier even when the `security_sensitive` noul stays below threshold. Modifiers add verification requirements to the plan; they never select a testing mode, a workflow or a role.
 
 **MOD-2 Non-override.** A modifier label never overrides the accepted Jev `testing_mode` or lowers a verification floor. An environment failure is not a reproduced defect; a dependency update is not automatically minor; `docs` checks never substitute for behavioral checks.
 
@@ -205,6 +209,12 @@ These are preconditions for using any rule above in automation. None is satisfie
 ---
 
 ## Appendix A — Changes from v2.4.0
+
+### v2.5.4-draft (2026-11-03) — classification → work audit
+
+1. MOD-1: `ui_ux`, `database`, `security`, `api_integration` modifiers now also activate on their task type (v2.5.0 restructuring had kept only the flag route; v2.4.0 `activation_rules.modifiers` had both).
+2. CLS-7b: `analysis` × `delivery` → `NEEDS_CONTEXT` explicitly.
+3. `change_kind` gains `test_only` (EVID-2a); schema updated.
 
 ### v2.5.3-draft (2026-11-03) — reconciled with AGENTS.md / herdr_orchestrator.md
 

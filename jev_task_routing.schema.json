@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schemas/jev_task_routing.schema.json",
   "title": "Jev task routing policy configuration",
-  "description": "Schema for jev_task_routing.json (v2.5.3-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
+  "description": "Schema for jev_task_routing.json (v2.5.4-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -1723,6 +1723,7 @@
         "change_kind": {
           "enum": [
             "nonbehavioral",
+            "test_only",
             "preserve_behavior",
             "change_behavior",
             "read_only",

@@ -209,6 +209,7 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 
 ## 버전
 
+- **2.5.4-draft** — 분류→작업 매핑 감사 반영: ui_ux·database·security·api_integration modifier가 task_type으로도 활성화(MOD-1), analysis×delivery → NEEDS_CONTEXT(CLS-7b), `change_kind`에 `test_only` 추가(EVID-2a).
 - **2.5.3-draft** — AGENTS.md·herdr_orchestrator.md와 대조해 상충 해소: 호스트는 제품 코드를 직접 쓰지 않음(AUTH-1), 문서 우선순위(AUTH-7), 검토 독립성은 '다른 세션 필수·다른 모델 권장'(ROLE-7), 워커 최소화는 구현 워커에만(WF-2), 대기·heartbeat·보고 없는 종료 처리(ORDER-8, `delegation.liveness`). `examples/herdr/` 추가.
 - **2.5.2-draft** — 모델 설정을 `models.json`으로 분리(역할별 harness/model/effort, 기본값, 프로필, 라우터 연결, 어댑터 허용 effort). 정책 파일은 `settings: models.json#/roles/<id>`로 참조만 하며 스키마가 정책 안의 모델 설정을 거부. `resolve_models.py` 추가. 설치 시 `models.json`은 없을 때만 생성.
 - **2.5.1-draft** — inspector/researcher가 전혀 호출되지 않던 문제 수정: 긍정 발동 트리거(INS-1..7, RES-1..5), 호스트 자가 조사 상한(8파일), skip 기록 의무, 조사 지시서 기본값·출력 계약·도구 preflight 추가. Jev 호출 예산 2→5회(조사 지시서는 예산 미소모). 설정 파일명을 `jev_task_routing.json`으로 변경. Jev 14문항·임계값은 그대로.

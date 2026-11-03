@@ -1,6 +1,6 @@
 {
   "$schema": "./jev_task_routing.schema.json",
-  "version": "2.5.3-draft",
+  "version": "2.5.4-draft",
   "policy_doc": "ROUTING_POLICY.md",
   "purpose": "Route development work through the smallest adequate workflow using Jev for semantic classification, the current host coordinator for all task authority, and bounded worker assignments for execution.",
   "nature": "policy configuration; not a runtime enforcement implementation (see ENF-* in policy_doc)",
@@ -29,6 +29,7 @@
       "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
       "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
       "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
+      "2.5.4: modifiers ui_ux/database/security/api_integration also activate on their task_type (MOD-1); CLS-7b analysis x delivery -> NEEDS_CONTEXT; change_kind gains test_only",
       "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)"
     ]
   },
@@ -751,6 +752,11 @@
         "then": "status=NEEDS_CONTEXT"
       },
       {
+        "id": "CLS-7b",
+        "when": "task_type==analysis AND work_mode==delivery",
+        "then": "status=NEEDS_CONTEXT; ask whether a production change is requested (-> delivery with a concrete task_type) or not (-> exploration); never start delivery work on an analysis task"
+      },
+      {
         "id": "CLS-8",
         "when": "task_type==mixed (confident)",
         "then": "status=NEEDS_DECOMPOSITION; children inherit parent risk floor"
@@ -1330,7 +1336,7 @@
       ]
     },
     "ui_ux": {
-      "activate_when": "touches_ui==true",
+      "activate_when": "task_type==ui_ux OR touches_ui==true",
       "checks": [
         "rendered output",
         "accessibility behavior",
@@ -1343,7 +1349,7 @@
       ]
     },
     "database": {
-      "activate_when": "data_sensitive==true OR migration in scope",
+      "activate_when": "task_type==database OR data_sensitive==true OR migration in scope",
       "checks": [
         "migration with representative nonproduction data",
         "compatibility",
@@ -1356,7 +1362,7 @@
       ]
     },
     "api_integration": {
-      "activate_when": "touches_external_api==true",
+      "activate_when": "task_type==api_integration OR touches_external_api==true",
       "checks": [
         "request/response compatibility",
         "errors/timeouts/malformed data/retries",
@@ -1418,7 +1424,7 @@
       ]
     },
     "security": {
-      "activate_when": "security_sensitive==true",
+      "activate_when": "task_type==security OR security_sensitive==true",
       "checks": [
         "negative authorization cases",
         "trust boundaries",
@@ -1557,6 +1563,7 @@
   "enums": {
     "change_kind": [
       "nonbehavioral",
+      "test_only",
       "preserve_behavior",
       "change_behavior",
       "read_only",
@@ -1745,7 +1752,7 @@
       "task_id": null,
       "revision": null,
       "state_digest": null,
-      "policy_version": "2.5.3-draft",
+      "policy_version": "2.5.4-draft",
       "router_requested_model": null,
       "router_actual_model": null,
       "status": null,
