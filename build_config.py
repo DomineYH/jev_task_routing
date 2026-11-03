@@ -51,22 +51,22 @@ ROLE_META = {
         rule_refs=["AUTH-3", "ROLE-3", "ROLE-7"],
     ),
     "inspector": O(
-        mission="Gather repository evidence (code, callers, tests, execution status) for a named gap; mark unknowns.",
+        mission="Fill the evidence packet from repository facts (code, callers, tests, execution status) for a named gap; return a packet delta with source refs.",
         target_access="read_only",
-        may_write=["evidence_artifacts", "reports"],
-        dispatch_when=["material_repository_evidence_gap"],
+        may_write=["evidence_report"],
+        dispatch_when=["any evidence_orders.inspector_triggers condition holds (EVID-6)", "NEEDS_CONTEXT naming a repository fact"],
         order_purposes=["repository_evidence"],
-        required_order_fields=[],
-        rule_refs=["AUTH-3", "ROLE-4", "EVID-2"],
+        required_order_fields=["evidence_gap"],
+        rule_refs=["AUTH-3", "ROLE-4", "EVID-6", "EVID-7", "ORDER-7"],
     ),
     "researcher": O(
-        mission="Resolve a specific missing external API/dependency/platform fact from official sources.",
+        mission="Resolve a specific external API/dependency/platform fact from official sources; return a fixed-format fact record with source URL.",
         target_access="none",
-        may_write=["reports"],
-        dispatch_when=["necessary_external_document_gap"],
+        may_write=["evidence_report"],
+        dispatch_when=["any evidence_orders.researcher_triggers condition holds (EVID-6)", "NEEDS_CONTEXT naming an external fact"],
         order_purposes=["external_research"],
-        required_order_fields=[],
-        rule_refs=["AUTH-3", "ROLE-5"],
+        required_order_fields=["evidence_gap"],
+        rule_refs=["AUTH-3", "ROLE-5", "EVID-6", "EVID-7", "ORDER-7"],
     ),
     "tester": O(
         mission="Execute uncovered specialized integration/E2E/performance/migration/post-deployment checks and report actuals.",
@@ -194,13 +194,94 @@ decision = O(
         O(id="CLS-10", when="no rule above fired", then="status=READY_FOR_PREFLIGHT; select workflow by (mode, risk); roles remain candidates until ordered (AUTH-2)"),
     ],
     budgets=O(
-        max_semantic_calls_per_task_revision=dp["uncertainty_handling"]["max_semantic_calls_per_task_revision"],
+        max_semantic_calls_per_task_revision=5,
+        max_semantic_calls_note="raised from 2 (v2.4.0) to 5 in v2.5.1: initial call + up to 4 reevaluations after evidence changes (CLS-11)",
         max_automatic_repair_cycles=src["verification_policy"]["repair_budget"]["max_automatic_cycles"],
         advisor_consultations_per_question=1,
+        evidence_orders_consume_jev_budget=False,
         budget_reset_on=["new_task_revision_with_materially_changed_evidence"],
-        budget_not_reset_on=["order_revision", "clarification", "advisor_call", "stage_transition", "worker_resume"],
+        budget_not_reset_on=["order_revision", "clarification", "advisor_call", "stage_transition", "worker_resume", "inspector_order", "researcher_order"],
         on_exhaustion="BLOCKED or explicit documented authorized manual determination (CLS-11)",
     ),
+)
+
+# --------------------------------------------------------------------------
+# Evidence orders (inspector / researcher): positive triggers, defaults, output
+# contracts, tool preflight. NEW in 2.5.1 — v2.4.0 defined these roles only by
+# exclusion, which in practice meant they were never dispatched.
+# --------------------------------------------------------------------------
+evidence_orders = O(
+    purpose="Make inspector/researcher dispatch a rule-driven, auditable decision instead of host discretion (EVID-6, EVID-7).",
+    consume_jev_budget=False,
+    position="after host intake, before the first Jev call; or after a NEEDS_CONTEXT naming a fact",
+    host_self_inspection_cap=O(
+        max_files_read=8,
+        max_targeted_followups=1,
+        on_exceeded="stop self-inspection; issue an inspector order for the remaining gap (EVID-6)",
+    ),
+    inspector_triggers=[
+        O(id="INS-1", when="evidence_packet.unknowns contains any entry prefixed 'repo:'"),
+        O(id="INS-2", when="evidence_packet.test_seam.status == 'unknown'"),
+        O(id="INS-3", when="evidence_packet.behavior.spec_status == 'unclear' AND change_kind not in ['read_only','nonbehavioral']"),
+        O(id="INS-4", when="len(evidence_packet.targets) > 5 OR callers/consumers of any target could not be located within host_self_inspection_cap"),
+        O(id="INS-5", when="any trusted risk flag (security_sensitive, data_sensitive, shared_core_change, production_impact) is still null after host intake AND change_kind == 'change_behavior'"),
+        O(id="INS-6", when="router status == NEEDS_CONTEXT AND the named missing fact is a repository fact"),
+        O(id="INS-7", when="evidence_packet.existing_checks.last_result == 'not_run' AND no CI result ref exists for the current snapshot"),
+    ],
+    researcher_triggers=[
+        O(id="RES-1", when="evidence_packet.external_contracts.status == 'unverified'"),
+        O(id="RES-2", when="evidence_packet.unknowns contains any entry prefixed 'external:'"),
+        O(id="RES-3", when="task_type == 'dependency_update' AND the target version's changelog/migration notes are not in the repository"),
+        O(id="RES-4", when="trusted touches_external_api == true OR jev touches_external_api >= include_optional_signal_min, AND no local authoritative source (typed client, vendored spec, lockfile-pinned docs) covers the changed contract"),
+        O(id="RES-5", when="router status == NEEDS_CONTEXT AND the named missing fact is external (API, platform, dependency behavior)"),
+    ],
+    skip_record=O(
+        required=True,
+        where="task_record.coordinator_decisions",
+        shape=O(decision="skip_evidence_order", role_id=None, trigger_ids=[], skip_reason="", evidence_refs=[]),
+        allowed_skip_reasons=[
+            "gap_already_closed_by_host_read (cite source_refs)",
+            "valid_prior_evidence_reused (cite evidence id and snapshot)",
+            "trigger_false_positive (state why the condition does not actually hold)",
+            "tool_unavailable_in_worker_session (BLOCKED for that role, not silently skipped)",
+        ],
+        violation="a triggered order with no issued order and no skip record is a policy violation surfaced by verify_routing/shadow report",
+    ),
+    order_defaults=O(
+        at_stage=None,
+        inspector=O(
+            purpose="repository_evidence",
+            read_scope=["repository:read-only"],
+            write_scope=[".routing/evidence/<order_id>.json"],
+            allowed_actions=["read files", "search/grep", "list tree", "git log/blame/diff (read-only)", "run existing test discovery or a single focused read-only check named in the order"],
+            stop_conditions=["any write outside write_scope", "any network access", "gap resolved or declared unresolvable"],
+        ),
+        researcher=O(
+            purpose="external_research",
+            read_scope=["network:web", "repository:read-only (for cross-checking versions)"],
+            write_scope=[".routing/evidence/<order_id>.json"],
+            allowed_actions=["web search", "fetch official documentation/changelogs/specs", "read package registry metadata"],
+            stop_conditions=["no official source found after bounded search (report as unresolved)", "any repository write", "any credential use beyond the authorized network tool"],
+        ),
+    ),
+    output_contracts=O(
+        inspector=O(
+            format="evidence_packet_delta",
+            fields=["scope_id", "scope_snapshot", "filled: {<packet field path>: <value>}", "source_refs: [<path:line-range>]", "unknowns_resolved: []", "unknowns_remaining: []", "diagnostics_run: [{command, exit_status, result_ref}]"],
+            rules=["every filled field cites at least one source_ref", "never fill a field from inference; leave it in unknowns_remaining", "no routing, risk or testing_mode recommendation"],
+        ),
+        researcher=O(
+            format="external_fact_record",
+            fields=["question", "fact", "source_url", "source_title", "retrieved_on", "section_or_quote (<=25 words)", "version_or_date_of_source", "confidence: high|medium|low", "limitations", "conflicts_with_other_sources: []"],
+            rules=["official/primary source required; secondary sources only as 'limitations'", "if not found: fact=null and limitations explain the search performed", "never answer from model memory without a source_url"],
+        ),
+    ),
+    tool_preflight=O(
+        inspector=["file_read", "search"],
+        researcher=["web_fetch or web_search"],
+        on_missing="BLOCKED for that role with skip_reason=tool_unavailable_in_worker_session; the host must not answer the gap from memory instead",
+    ),
+    rule_refs=["EVID-6", "EVID-7", "ORDER-7", "ROLE-4", "ROLE-5"],
 )
 
 # --------------------------------------------------------------------------
@@ -363,14 +444,22 @@ enums = O(
     rollout_status=["not_performed", "ready_to_merge", "merged", "deployed", "production_verified"],
     order_purpose=sorted({p for r in roles.values() for p in r["order_purposes"]}),
     evidence_label=verification["evidence"]["labels"],
+    external_contract_status=["unverified", "verified", "not_applicable"],
+    evidence_order_skip_reason=["gap_already_closed_by_host_read", "valid_prior_evidence_reused", "trigger_false_positive", "tool_unavailable_in_worker_session"],
 )
 
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
+VERSION = "2.5.1-draft"
 task_record = copy.deepcopy(src["task_record_template"])
-task_record["policy_version"] = "2.5.0-draft"
-task_record["inherited_risk_floor"] = None  # NEW: previously referenced but had no slot
+task_record["policy_version"] = VERSION
+task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
+task_record["evidence_orders_evaluated"] = O(inspector_triggers=[], researcher_triggers=[], issued=[], skipped=[])  # NEW in 2.5.1
+
+evidence_packet = copy.deepcopy(src["evidence_preparation"]["template"])
+evidence_packet["external_contracts"] = O(status="not_applicable", refs=[])  # NEW in 2.5.1: researcher trigger RES-1
+evidence_packet["unknowns_convention"] = "prefix each entry with 'repo:' or 'external:'"
 
 templates = O(
     request=O(
@@ -385,7 +474,7 @@ templates = O(
         deployment_requested=False,
         specialist_question=None,
     ),
-    evidence_packet=copy.deepcopy(src["evidence_preparation"]["template"]),
+    evidence_packet=evidence_packet,
     work_order=copy.deepcopy(src["work_order_contract"]["work_order_template"]),
     worker_question=copy.deepcopy(src["question_protocol"]["question_template"]),
     task_record=task_record,
@@ -396,7 +485,7 @@ templates = O(
 # --------------------------------------------------------------------------
 cfg = O()
 cfg["$schema"] = "./jev_task_routing.schema.json"
-cfg["version"] = "2.5.0-draft"
+cfg["version"] = VERSION
 cfg["policy_doc"] = "ROUTING_POLICY.md"
 cfg["purpose"] = src["purpose"]
 cfg["nature"] = "policy configuration; not a runtime enforcement implementation (see ENF-* in policy_doc)"
@@ -405,6 +494,7 @@ cfg["provenance"] = O(
     source_file="jev_task_routing_v2.4.0.json",
     source_sha256=sha,
     restructured_on="2026-11-03",
+    patched_on="2026-11-03",
     verbatim_sections=["jev.questions", "decision.thresholds", "roles.*.{harness,model,effort}", "workflows.*.{select_when,base_worker_roles,stages}", "enums (where present in source)", "templates.{evidence_packet,work_order,worker_question,task_record}"],
     semantic_changes=[
         "trusted flags needs_documentation, require_independent_review, needs_post_deployment_verification now have consumption rules",
@@ -412,6 +502,10 @@ cfg["provenance"] = O(
         "new docs modifier (consumer of needs_documentation)",
         "minor workflow gains a conditional independent_review_and_ci stage when require_independent_review==true",
         "migration.restored_configurable_roles removed (vestigial); replaced by provenance + policy_doc changelog",
+        "2.5.1: max_semantic_calls_per_task_revision 2 -> 5; evidence orders never consume it",
+        "2.5.1: new evidence_orders section with positive inspector/researcher triggers, host self-inspection cap, mandatory skip record, order defaults, output contracts, tool preflight",
+        "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
+        "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
     ],
 )
 cfg["host"] = O(
@@ -461,6 +555,7 @@ cfg["work_order"] = O(
 )
 cfg["jev"] = jev
 cfg["decision"] = decision
+cfg["evidence_orders"] = evidence_orders
 cfg["workflows"] = workflows
 cfg["stages"] = stages
 cfg["modifiers"] = modifiers

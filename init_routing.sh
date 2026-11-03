@@ -19,7 +19,7 @@ HARNESS=""
 PING=0
 AUTH_CHECK=1
 DEST=".routing"
-POLICY_FILES=(jev_task_routing_v2.5.0.json jev_task_routing.schema.json ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json)
+POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json)
 MARK_START="<!-- jev-routing:start"
 MARK_END="<!-- jev-routing:end -->"
 
@@ -151,24 +151,32 @@ printf '%s    source revision: %s%s\n' "$c_dim" "$SRC_COMMIT" "$c_off"
 # ---------------------------------------------------------------- 3. install
 info "3/6 Installing into $DEST/"
 mkdir -p "$DEST/tasks"
-for f in jev_task_routing_v2.5.0.json jev_task_routing.schema.json ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
+for f in jev_task_routing.json jev_task_routing.schema.json ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
   if [[ -f "$DEST/$f" ]] && ! cmp -s "$SRC/$f" "$DEST/$f"; then
     cp "$DEST/$f" "$DEST/$f.bak"; warn "updated $DEST/$f (previous copy saved as $f.bak)"
   fi
   cp "$SRC/$f" "$DEST/$f"
 done
 chmod +x "$DEST/verify_routing.py"
+mkdir -p "$DEST/evidence"
+# migrate versioned config names from <= 2.5.0
+for old in "$DEST"/jev_task_routing_v*.json; do
+  [[ -f "$old" ]] || continue
+  mv "$old" "$old.bak"; warn "renamed legacy $(basename "$old") -> $(basename "$old").bak (config is now version-agnostic jev_task_routing.json)"
+done
 [[ -f "$DEST/repo_checks.json" ]] || { cp "$SRC/repo_checks.example.json" "$DEST/repo_checks.json"; warn "created $DEST/repo_checks.json from example — edit it for this repository"; }
 touch "$DEST/tasks/.gitkeep"
 
 # .gitignore: task records are local state
 GI_LINE="$DEST/tasks/*.json"
+GI_LINE2="$DEST/evidence/*.json"
 if [[ ! -f .gitignore ]] || ! grep -qxF "$GI_LINE" .gitignore; then
   printf '\n# jev_task_routing: local task records\n%s\n' "$GI_LINE" >> .gitignore
   printf '%s    added "%s" to .gitignore%s\n' "$c_dim" "$GI_LINE" "$c_off"
 fi
+if ! grep -qxF "$GI_LINE2" .gitignore; then printf '%s\n' "$GI_LINE2" >> .gitignore; fi
 
-POLICY_VERSION="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$DEST/jev_task_routing_v2.5.0.json")"
+POLICY_VERSION="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$DEST/jev_task_routing.json")"
 python3 - "$DEST/INSTALLED.json" "$POLICY_VERSION" "$REPO_URL" "$SRC_COMMIT" <<'PY'
 import json, sys, datetime
 json.dump({"policy_version": sys.argv[2], "source": sys.argv[3], "source_revision": sys.argv[4],
@@ -249,10 +257,10 @@ echo
 if [[ $RC -eq 0 ]]; then
   cat <<EOF
 ${c_grn}Installation complete.${c_off}
-  Policy   : $DEST/jev_task_routing_v2.5.0.json  (v$POLICY_VERSION, source $SRC_COMMIT)
+  Policy   : $DEST/jev_task_routing.json  (v$POLICY_VERSION, source $SRC_COMMIT)
   Rules    : $DEST/ROUTING_POLICY.md
   Agents   : ${TARGETS[*]}  (block between jev-routing markers)
-  Records  : $DEST/tasks/   (git-ignored)
+  Records  : $DEST/tasks/ and $DEST/evidence/   (git-ignored)
 
 Next steps:
   1. Edit $DEST/repo_checks.json to match your CI (required checks, exact commands).

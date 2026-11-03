@@ -48,17 +48,21 @@ def load_json(path, rep):
 
 
 def check_files(routing, rep):
-    required = ["jev_task_routing_v2.5.0.json", "jev_task_routing.schema.json", "ROUTING_POLICY.md", "verify_routing.py"]
+    required = ["jev_task_routing.json", "jev_task_routing.schema.json", "ROUTING_POLICY.md", "verify_routing.py"]
     for name in required:
         p = routing / name
         if p.is_file():
             rep.ok(f"present: .routing/{name}")
         else:
             rep.error(f"missing: .routing/{name}")
-    if (routing / "tasks").is_dir():
-        rep.ok("present: .routing/tasks/")
-    else:
-        rep.error("missing directory: .routing/tasks/")
+    for d in ("tasks", "evidence"):
+        if (routing / d).is_dir():
+            rep.ok(f"present: .routing/{d}/")
+        else:
+            rep.error(f"missing directory: .routing/{d}/")
+    legacy = sorted(p.name for p in routing.glob("jev_task_routing_v*.json"))
+    if legacy:
+        rep.warning(f"legacy versioned config present and ignored: {legacy} (rename to .bak or delete)")
     if (routing / "repo_checks.json").is_file():
         rep.ok("present: .routing/repo_checks.json")
     else:
@@ -121,12 +125,51 @@ def check_cross_refs(cfg, policy_md, rep):
     else:
         rep.ok(f"all {len(referenced)} referenced rule IDs defined in ROUTING_POLICY.md")
 
+    eo = cfg.get("evidence_orders", {})
+    ins, res = eo.get("inspector_triggers", []), eo.get("researcher_triggers", [])
+    if not ins or not res:
+        rep.error("evidence_orders must define non-empty inspector_triggers and researcher_triggers (EVID-6); without them these roles are never dispatched")
+    else:
+        rep.ok(f"evidence orders: {len(ins)} inspector triggers, {len(res)} researcher triggers, skip record {'required' if eo.get('skip_record', {}).get('required') else 'NOT required'}")
+    budget = cfg.get("decision", {}).get("budgets", {}).get("max_semantic_calls_per_task_revision")
+    if budget is None or budget < 1:
+        rep.error("decision.budgets.max_semantic_calls_per_task_revision missing")
+    else:
+        rep.ok(f"Jev call budget per task revision: {budget}")
+
     flags = cfg.get("decision", {}).get("trusted_flags", {})
     noeffect = [k for k, v in flags.items() if not v.get("effect")]
     if noeffect:
         rep.error(f"trusted flags without consumption rule: {noeffect}")
     else:
         rep.ok("every trusted flag has a consumption rule")
+
+
+def check_task_records(routing, rep):
+    """Surface EVID-7 violations in recorded tasks: a trigger fired but no order and no skip record."""
+    recs = sorted((routing / "tasks").glob("*.json"))
+    if not recs:
+        rep.ok("no task records yet (shadow mode not started)")
+        return
+    violations = 0
+    for r in recs:
+        try:
+            t = json.loads(r.read_text(encoding="utf-8"))
+        except Exception:
+            rep.warning(f"unreadable task record: {r.name}")
+            continue
+        ev = t.get("evidence_orders_evaluated") or {}
+        fired = set(ev.get("inspector_triggers", [])) | set(ev.get("researcher_triggers", []))
+        if not fired:
+            continue
+        issued = set(ev.get("issued", []))
+        skipped = {tid for s_ in ev.get("skipped", []) for tid in s_.get("trigger_ids", [])}
+        covered = bool(issued) or fired <= skipped
+        if not covered:
+            violations += 1
+            rep.error(f"{r.name}: triggers {sorted(fired)} fired but no evidence order issued and no skip record (EVID-7)")
+    if not violations:
+        rep.ok(f"{len(recs)} task record(s): every fired evidence trigger has an order or a skip record")
 
 
 def check_agent_block(project, rep):
@@ -213,9 +256,9 @@ def main():
     rep = Report(quiet=a.quiet)
     print(f"verify_routing: {project}")
 
-    print("[1/6] files")
+    print("[1/7] files")
     check_files(routing, rep)
-    cfg = load_json(routing / "jev_task_routing_v2.5.0.json", rep)
+    cfg = load_json(routing / "jev_task_routing.json", rep)
     schema = load_json(routing / "jev_task_routing.schema.json", rep)
     policy_path = routing / "ROUTING_POLICY.md"
     policy_md = policy_path.read_text(encoding="utf-8") if policy_path.is_file() else ""
@@ -223,15 +266,17 @@ def main():
         print(f"\nRESULT: FAIL ({rep.fail} failure(s))")
         return 1
 
-    print("[2/6] schema")
+    print("[2/7] schema")
     check_schema(cfg, schema, rep)
-    print("[3/6] cross references")
+    print("[3/7] cross references")
     check_cross_refs(cfg, policy_md, rep)
-    print("[4/6] agent instructions")
+    print("[4/7] agent instructions")
     check_agent_block(project, rep)
-    print("[5/6] install record")
+    print("[5/7] task records (EVID-7)")
+    check_task_records(routing, rep)
+    print("[6/7] install record")
     check_installed_marker(routing, cfg, rep)
-    print("[6/6] environment")
+    print("[7/7] environment")
     check_env(cfg, rep)
     if a.ping:
         print("[+]   jev endpoint ping")

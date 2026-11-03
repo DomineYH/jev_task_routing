@@ -1,6 +1,6 @@
 {
   "$schema": "./jev_task_routing.schema.json",
-  "version": "2.5.0-draft",
+  "version": "2.5.1-draft",
   "policy_doc": "ROUTING_POLICY.md",
   "purpose": "Route development work through the smallest adequate workflow using Jev for semantic classification, the current host coordinator for all task authority, and bounded worker assignments for execution.",
   "nature": "policy configuration; not a runtime enforcement implementation (see ENF-* in policy_doc)",
@@ -9,6 +9,7 @@
     "source_file": "jev_task_routing_v2.4.0.json",
     "source_sha256": "568166e24b04023924df1cc82d74d741f9acfe80552103b45f7e2b953ec75a87",
     "restructured_on": "2026-11-03",
+    "patched_on": "2026-11-03",
     "verbatim_sections": [
       "jev.questions",
       "decision.thresholds",
@@ -22,7 +23,11 @@
       "inherited_risk_floor has a slot in templates.request and templates.task_record",
       "new docs modifier (consumer of needs_documentation)",
       "minor workflow gains a conditional independent_review_and_ci stage when require_independent_review==true",
-      "migration.restored_configurable_roles removed (vestigial); replaced by provenance + policy_doc changelog"
+      "migration.restored_configurable_roles removed (vestigial); replaced by provenance + policy_doc changelog",
+      "2.5.1: max_semantic_calls_per_task_revision 2 -> 5; evidence orders never consume it",
+      "2.5.1: new evidence_orders section with positive inspector/researcher triggers, host self-inspection cap, mandatory skip record, order defaults, output contracts, tool preflight",
+      "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
+      "2.5.1: config file renamed to version-agnostic jev_task_routing.json"
     ]
   },
   "host": {
@@ -158,44 +163,54 @@
       "harness": "agy",
       "model": "gemini-3.8-flash",
       "effort": "high",
-      "mission": "Gather repository evidence (code, callers, tests, execution status) for a named gap; mark unknowns.",
+      "mission": "Fill the evidence packet from repository facts (code, callers, tests, execution status) for a named gap; return a packet delta with source refs.",
       "target_access": "read_only",
       "may_write": [
-        "evidence_artifacts",
-        "reports"
+        "evidence_report"
       ],
       "dispatch_when": [
-        "material_repository_evidence_gap"
+        "any evidence_orders.inspector_triggers condition holds (EVID-6)",
+        "NEEDS_CONTEXT naming a repository fact"
       ],
       "order_purposes": [
         "repository_evidence"
       ],
-      "required_order_fields": [],
+      "required_order_fields": [
+        "evidence_gap"
+      ],
       "rule_refs": [
         "AUTH-3",
         "ROLE-4",
-        "EVID-2"
+        "EVID-6",
+        "EVID-7",
+        "ORDER-7"
       ]
     },
     "researcher": {
       "harness": "agy",
       "model": "gemini-3.8-flash",
       "effort": "high",
-      "mission": "Resolve a specific missing external API/dependency/platform fact from official sources.",
+      "mission": "Resolve a specific external API/dependency/platform fact from official sources; return a fixed-format fact record with source URL.",
       "target_access": "none",
       "may_write": [
-        "reports"
+        "evidence_report"
       ],
       "dispatch_when": [
-        "necessary_external_document_gap"
+        "any evidence_orders.researcher_triggers condition holds (EVID-6)",
+        "NEEDS_CONTEXT naming an external fact"
       ],
       "order_purposes": [
         "external_research"
       ],
-      "required_order_fields": [],
+      "required_order_fields": [
+        "evidence_gap"
+      ],
       "rule_refs": [
         "AUTH-3",
-        "ROLE-5"
+        "ROLE-5",
+        "EVID-6",
+        "EVID-7",
+        "ORDER-7"
       ]
     },
     "tester": {
@@ -724,9 +739,11 @@
       }
     ],
     "budgets": {
-      "max_semantic_calls_per_task_revision": 2,
+      "max_semantic_calls_per_task_revision": 5,
+      "max_semantic_calls_note": "raised from 2 (v2.4.0) to 5 in v2.5.1: initial call + up to 4 reevaluations after evidence changes (CLS-11)",
       "max_automatic_repair_cycles": 2,
       "advisor_consultations_per_question": 1,
+      "evidence_orders_consume_jev_budget": false,
       "budget_reset_on": [
         "new_task_revision_with_materially_changed_evidence"
       ],
@@ -735,10 +752,192 @@
         "clarification",
         "advisor_call",
         "stage_transition",
-        "worker_resume"
+        "worker_resume",
+        "inspector_order",
+        "researcher_order"
       ],
       "on_exhaustion": "BLOCKED or explicit documented authorized manual determination (CLS-11)"
     }
+  },
+  "evidence_orders": {
+    "purpose": "Make inspector/researcher dispatch a rule-driven, auditable decision instead of host discretion (EVID-6, EVID-7).",
+    "consume_jev_budget": false,
+    "position": "after host intake, before the first Jev call; or after a NEEDS_CONTEXT naming a fact",
+    "host_self_inspection_cap": {
+      "max_files_read": 8,
+      "max_targeted_followups": 1,
+      "on_exceeded": "stop self-inspection; issue an inspector order for the remaining gap (EVID-6)"
+    },
+    "inspector_triggers": [
+      {
+        "id": "INS-1",
+        "when": "evidence_packet.unknowns contains any entry prefixed 'repo:'"
+      },
+      {
+        "id": "INS-2",
+        "when": "evidence_packet.test_seam.status == 'unknown'"
+      },
+      {
+        "id": "INS-3",
+        "when": "evidence_packet.behavior.spec_status == 'unclear' AND change_kind not in ['read_only','nonbehavioral']"
+      },
+      {
+        "id": "INS-4",
+        "when": "len(evidence_packet.targets) > 5 OR callers/consumers of any target could not be located within host_self_inspection_cap"
+      },
+      {
+        "id": "INS-5",
+        "when": "any trusted risk flag (security_sensitive, data_sensitive, shared_core_change, production_impact) is still null after host intake AND change_kind == 'change_behavior'"
+      },
+      {
+        "id": "INS-6",
+        "when": "router status == NEEDS_CONTEXT AND the named missing fact is a repository fact"
+      },
+      {
+        "id": "INS-7",
+        "when": "evidence_packet.existing_checks.last_result == 'not_run' AND no CI result ref exists for the current snapshot"
+      }
+    ],
+    "researcher_triggers": [
+      {
+        "id": "RES-1",
+        "when": "evidence_packet.external_contracts.status == 'unverified'"
+      },
+      {
+        "id": "RES-2",
+        "when": "evidence_packet.unknowns contains any entry prefixed 'external:'"
+      },
+      {
+        "id": "RES-3",
+        "when": "task_type == 'dependency_update' AND the target version's changelog/migration notes are not in the repository"
+      },
+      {
+        "id": "RES-4",
+        "when": "trusted touches_external_api == true OR jev touches_external_api >= include_optional_signal_min, AND no local authoritative source (typed client, vendored spec, lockfile-pinned docs) covers the changed contract"
+      },
+      {
+        "id": "RES-5",
+        "when": "router status == NEEDS_CONTEXT AND the named missing fact is external (API, platform, dependency behavior)"
+      }
+    ],
+    "skip_record": {
+      "required": true,
+      "where": "task_record.coordinator_decisions",
+      "shape": {
+        "decision": "skip_evidence_order",
+        "role_id": null,
+        "trigger_ids": [],
+        "skip_reason": "",
+        "evidence_refs": []
+      },
+      "allowed_skip_reasons": [
+        "gap_already_closed_by_host_read (cite source_refs)",
+        "valid_prior_evidence_reused (cite evidence id and snapshot)",
+        "trigger_false_positive (state why the condition does not actually hold)",
+        "tool_unavailable_in_worker_session (BLOCKED for that role, not silently skipped)"
+      ],
+      "violation": "a triggered order with no issued order and no skip record is a policy violation surfaced by verify_routing/shadow report"
+    },
+    "order_defaults": {
+      "at_stage": null,
+      "inspector": {
+        "purpose": "repository_evidence",
+        "read_scope": [
+          "repository:read-only"
+        ],
+        "write_scope": [
+          ".routing/evidence/<order_id>.json"
+        ],
+        "allowed_actions": [
+          "read files",
+          "search/grep",
+          "list tree",
+          "git log/blame/diff (read-only)",
+          "run existing test discovery or a single focused read-only check named in the order"
+        ],
+        "stop_conditions": [
+          "any write outside write_scope",
+          "any network access",
+          "gap resolved or declared unresolvable"
+        ]
+      },
+      "researcher": {
+        "purpose": "external_research",
+        "read_scope": [
+          "network:web",
+          "repository:read-only (for cross-checking versions)"
+        ],
+        "write_scope": [
+          ".routing/evidence/<order_id>.json"
+        ],
+        "allowed_actions": [
+          "web search",
+          "fetch official documentation/changelogs/specs",
+          "read package registry metadata"
+        ],
+        "stop_conditions": [
+          "no official source found after bounded search (report as unresolved)",
+          "any repository write",
+          "any credential use beyond the authorized network tool"
+        ]
+      }
+    },
+    "output_contracts": {
+      "inspector": {
+        "format": "evidence_packet_delta",
+        "fields": [
+          "scope_id",
+          "scope_snapshot",
+          "filled: {<packet field path>: <value>}",
+          "source_refs: [<path:line-range>]",
+          "unknowns_resolved: []",
+          "unknowns_remaining: []",
+          "diagnostics_run: [{command, exit_status, result_ref}]"
+        ],
+        "rules": [
+          "every filled field cites at least one source_ref",
+          "never fill a field from inference; leave it in unknowns_remaining",
+          "no routing, risk or testing_mode recommendation"
+        ]
+      },
+      "researcher": {
+        "format": "external_fact_record",
+        "fields": [
+          "question",
+          "fact",
+          "source_url",
+          "source_title",
+          "retrieved_on",
+          "section_or_quote (<=25 words)",
+          "version_or_date_of_source",
+          "confidence: high|medium|low",
+          "limitations",
+          "conflicts_with_other_sources: []"
+        ],
+        "rules": [
+          "official/primary source required; secondary sources only as 'limitations'",
+          "if not found: fact=null and limitations explain the search performed",
+          "never answer from model memory without a source_url"
+        ]
+      }
+    },
+    "tool_preflight": {
+      "inspector": [
+        "file_read",
+        "search"
+      ],
+      "researcher": [
+        "web_fetch or web_search"
+      ],
+      "on_missing": "BLOCKED for that role with skip_reason=tool_unavailable_in_worker_session; the host must not answer the gap from memory instead"
+    },
+    "rule_refs": [
+      "EVID-6",
+      "EVID-7",
+      "ORDER-7",
+      "ROLE-4",
+      "ROLE-5"
+    ]
   },
   "workflows": {
     "minor": {
@@ -1396,6 +1595,17 @@
       "reused",
       "revalidated_from_prior_revision",
       "local_substitute"
+    ],
+    "external_contract_status": [
+      "unverified",
+      "verified",
+      "not_applicable"
+    ],
+    "evidence_order_skip_reason": [
+      "gap_already_closed_by_host_read",
+      "valid_prior_evidence_reused",
+      "trigger_false_positive",
+      "tool_unavailable_in_worker_session"
     ]
   },
   "templates": {
@@ -1460,7 +1670,12 @@
         "result_ref": null
       },
       "source_refs": [],
-      "unknowns": []
+      "unknowns": [],
+      "external_contracts": {
+        "status": "not_applicable",
+        "refs": []
+      },
+      "unknowns_convention": "prefix each entry with 'repo:' or 'external:'"
     },
     "work_order": {
       "task_id": null,
@@ -1502,7 +1717,7 @@
       "task_id": null,
       "revision": null,
       "state_digest": null,
-      "policy_version": "2.5.0-draft",
+      "policy_version": "2.5.1-draft",
       "router_requested_model": null,
       "router_actual_model": null,
       "status": null,
@@ -1546,7 +1761,13 @@
       "role_work_items": {},
       "pending_questions": [],
       "coordinator_decisions": [],
-      "inherited_risk_floor": null
+      "inherited_risk_floor": null,
+      "evidence_orders_evaluated": {
+        "inspector_triggers": [],
+        "researcher_triggers": [],
+        "issued": [],
+        "skipped": []
+      }
     }
   },
   "validation": {

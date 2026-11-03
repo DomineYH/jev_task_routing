@@ -8,7 +8,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| `jev_task_routing_v2.5.0.json` | 기계 판독용 설정 — 임계값, 7개 역할의 harness/model/effort, 워크플로·스테이지, Jev 14문항 루브릭, 템플릿 |
+| `jev_task_routing.json` | 기계 판독용 설정(버전은 파일 안 `version`) — 임계값, 7개 역할의 harness/model/effort, 워크플로·스테이지, Jev 14문항 루브릭, inspector/researcher 발동 트리거, 템플릿 |
 | `jev_task_routing.schema.json` | 설정 파일과 런타임 객체(request, evidence_packet, work_order, worker_question, task_record)의 JSON Schema |
 | `ROUTING_POLICY.md` | 규칙 ID(AUTH·MODEL·ROLE·ORDER·Q·EVID·CLS·WF·MOD·VER·SAFE·ENF·VAL) 단일 출처 문서. JSON의 `rule_refs`가 여기를 가리킴 |
 | `AGENTS_ROUTING.md` | 프로젝트의 CLAUDE.md / AGENTS.md에 삽입되는 호스트 지시 블록 |
@@ -37,7 +37,7 @@ bash /tmp/jtr/init_routing.sh
 1. **의존성 확인** — `git`, `python3 ≥ 3.8`
 2. **git 저장소·인증 확인** — 현재 폴더가 git 저장소가 아니면 `git init` 안내 후 종료(exit 2). 원격에 접근할 수 없으면 `gh auth login` / `gh auth setup-git` 또는 credential helper·SSH 설정을 안내 후 종료(exit 3)
 3. **다운로드** — 저장소를 임시 폴더에 얕게 복제
-4. **설치** — `.routing/` 아래에 정책 3종 + `verify_routing.py` + `repo_checks.json`(없을 때만 예시로 생성) + `tasks/` 생성, `.gitignore`에 `.routing/tasks/*.json` 추가, `INSTALLED.json`에 버전·원본 커밋 기록. 기존 파일과 내용이 다르면 `.bak`으로 백업 후 교체
+4. **설치** — `.routing/` 아래에 정책 3종 + `verify_routing.py` + `repo_checks.json`(없을 때만 예시로 생성) + `tasks/`·`evidence/` 생성, `.gitignore`에 `.routing/tasks/*.json`·`.routing/evidence/*.json` 추가, 구버전 `jev_task_routing_v*.json`은 `.bak`으로 이름 변경, `INSTALLED.json`에 버전·원본 커밋 기록. 기존 파일과 내용이 다르면 `.bak`으로 백업 후 교체
 5. **에이전트 지시 블록 삽입** — 하네스를 감지해 `CLAUDE.md`(Claude Code) 또는 `AGENTS.md`(codex·agy·opencode 등)에 `AGENTS_ROUTING.md` 내용을 추가. 파일이 없으면 생성, 있으면 끝에 추가. 마커(`<!-- jev-routing:start/end -->`) 사이만 관리하므로 **재실행해도 중복되지 않고 갱신**됩니다
 6. **검증** — `verify_routing.py` 실행(아래 참조)
 
@@ -71,8 +71,9 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 |---|---|---|
 | files | 정책 3종·verify·tasks/ 존재, repo_checks.json 존재 | FAIL / WARN |
 | schema | 설정이 JSON Schema를 통과 | FAIL |
-| cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재 | FAIL |
+| cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher 트리거 비어 있지 않음, Jev 예산 | FAIL |
 | agent instructions | CLAUDE.md 또는 AGENTS.md에 라우팅 블록 존재 | FAIL |
+| task records | 기록된 과제마다 발동한 inspector/researcher 트리거에 지시서 또는 skip 기록이 있는지 (EVID-7) | FAIL |
 | install record | INSTALLED.json 버전 = 설정 버전 | WARN |
 | environment | `TYPESAFE_API_KEY` 설정 여부 | WARN |
 | ping (옵션) | 엔드포인트 도달·인증 확인, `response.model`이 고정 버전과 같은지 | FAIL/WARN |
@@ -82,7 +83,7 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 ## 설치 후 해야 할 것
 
 1. **`.routing/repo_checks.json` 편집** — 저장소의 필수 CI 잡 이름과 실제 명령을 CI와 똑같이 적습니다. 호스트가 verification_plan의 `required_by: repository` 항목을 여기서 채웁니다(VER-5). 브랜치 보호에 리뷰가 필수면 `require_review: true`로 두고, 그러면 minor 워크플로에도 독립 검토가 붙습니다(WF-3).
-2. **역할 모델 조정** — `jev_task_routing_v2.5.0.json`의 `roles`는 건드리지 말고, 요청의 `prompt_overrides`로 덮습니다(MODEL-2). 보안·데이터 변경이 잦다면 `task-verifier`를 implementer와 동급 이상으로 올리기를 권합니다. 실제 뜨는 어댑터·모델 ID와 맞지 않는 조합은 preflight에서 BLOCKED 됩니다(MODEL-3).
+2. **역할 모델 조정** — `jev_task_routing.json`의 `roles`는 건드리지 말고, 요청의 `prompt_overrides`로 덮습니다(MODEL-2). 보안·데이터 변경이 잦다면 `task-verifier`를 implementer와 동급 이상으로 올리기를 권합니다. 실제 뜨는 어댑터·모델 ID와 맞지 않는 조합은 preflight에서 BLOCKED 됩니다(MODEL-3).
 3. **API 키** — `export TYPESAFE_API_KEY=...` (셸 프로필이나 시크릿 매니저에; `.env`를 커밋하지 마세요). 그 뒤 `--ping`으로 확인.
 4. **커밋** — `git add .routing CLAUDE.md|AGENTS.md .gitignore && git commit`
 
@@ -90,13 +91,14 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 
 작업마다 호스트는 다음 순서를 밟습니다. 자세한 규칙은 `ROUTING_POLICY.md`, 예시는 아래.
 
-1. **증거 패킷** — 관련 파일·호출자·가까운 테스트만 읽고 `templates.evidence_packet`을 채움 (EVID-1..5)
+1. **증거 패킷** — 관련 파일·호출자·가까운 테스트만 읽고(최대 8개 파일) `templates.evidence_packet`을 채움 (EVID-1..5). `unknowns`는 `repo:` / `external:` 접두어로 적음
 2. **trusted_flags** — 호스트가 직접 확인한 것만 true/false, 모르면 `null` (EVID-5)
-3. **Jev 1회 호출** — 14문항 한 번에 (CLS-1)
-4. **결정 규칙 적용** — `decision.rules`를 순서대로; 결과는 READY_FOR_PREFLIGHT / NEEDS_CONTEXT / NEEDS_DECOMPOSITION / NOT_APPLICABLE / BLOCKED
-5. **verification_plan** — 체크 패밀리 단위로 task_record에 기록 (VER-5)
-6. **작업 지시서 발행** — 역할별, 스키마 검증 통과한 것만 (ORDER-1). 섀도 모드에서는 여기서 멈춤
-7. **completion_gate** — 증거 대조 후 호스트만 수락 (AUTH-5)
+3. **조사 지시서** — `evidence_orders.inspector_triggers`(INS-1..7)·`researcher_triggers`(RES-1..5)를 패킷에 대조. 하나라도 참이면 **Jev 호출 전에** inspector/researcher 지시서를 발행하고 결과를 패킷에 병합. 발행하지 않으면 `skip_reason`을 반드시 기록 — 조용히 건너뛰면 검증에서 FAIL (EVID-6, EVID-7). 조사 지시서는 Jev 예산을 쓰지 않음
+4. **Jev 호출** — 14문항 한 번에 (CLS-1). 과제 리비전당 최대 5회(초기 1회 + 증거가 바뀐 뒤 재평가 4회)
+5. **결정 규칙 적용** — `decision.rules`를 순서대로; 결과는 READY_FOR_PREFLIGHT / NEEDS_CONTEXT / NEEDS_DECOMPOSITION / NOT_APPLICABLE / BLOCKED. NEEDS_CONTEXT가 저장소 사실을 요구하면 INS-6, 외부 사실이면 RES-5가 다시 발동
+6. **verification_plan** — 체크 패밀리 단위로 task_record에 기록 (VER-5)
+7. **작업 지시서 발행** — 역할별, 스키마 검증 통과한 것만 (ORDER-1). 섀도 모드에서는 여기서 멈춤
+8. **completion_gate** — 증거 대조 후 호스트만 수락 (AUTH-5)
 
 task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.task_record`).
 
@@ -106,6 +108,13 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 - 호스트가 `validators/password.js`를 읽고 `security_sensitive: true` attest
 - CLS-2 즉시 발동 → **risk=high**. Jev `testing_mode=test_first` → VER-3 가드 통과
 - 워크플로 `high`: planner(짧은 계획) → implementer(red→fix→green) → task-verifier(독립 검토) → `security` modifier로 부정 케이스·회귀 테스트 필수
+
+### 예시: "결제 웹훅 재시도 로직 수정" (researcher 발동)
+
+- 패킷: `change_kind=change_behavior`, `targets=[server/webhooks/stripe.js]`, 저장소에 Stripe 재시도 정책을 설명하는 로컬 소스가 없음 → `external_contracts.status=unverified`, `unknowns=["external: Stripe webhook retry schedule and idempotency key semantics"]`
+- RES-1·RES-2 발동 → Jev 호출 전에 researcher 지시서(`read_scope=["network:web"]`, `write_scope=[".routing/evidence/RM-051-res-1.json"]`, `evidence_gap="RES-1: Stripe webhook retry schedule"`) 발행
+- researcher가 `{fact, source_url, retrieved_on, confidence, limitations}` 형식으로 반환 → 호스트가 패킷에 병합 → 그 다음 Jev 호출
+- 호스트가 "내가 안다"며 건너뛰려면 `skip_reason=gap_already_closed_by_host_read`와 근거 `source_refs`를 적어야 하고, 기억에서 답하는 것은 허용되지 않음
 
 ### 예시: "README 오타 수정"
 
@@ -151,10 +160,13 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 | `Cannot reach ... with the current git credentials` | `gh auth login && gh auth setup-git`, 또는 SSH URL로 `--source git@github.com:DomineYH/jev_task_routing.git` |
 | `[WARN] 'jsonschema' not installed` | `pip install jsonschema` 후 `python3 .routing/verify_routing.py` |
 | `[FAIL] routing block ... not found` | `bash init_routing.sh --harness claude` 또는 `--harness agents`로 재삽입 |
+| `[FAIL] ... triggers fired but no evidence order issued and no skip record` | 호스트가 inspector/researcher를 조용히 건너뜀. 해당 task_record의 `evidence_orders_evaluated`에 `issued` 또는 `skipped`를 채우고, AGENTS/CLAUDE.md 블록이 최신인지 확인 |
+| inspector/researcher가 전혀 호출되지 않음 | task_record의 `evidence_orders_evaluated.inspector_triggers`가 비어 있는지 확인. 비어 있으면 호스트가 트리거를 평가하지 않은 것 — `unknowns`에 `repo:`/`external:` 접두어를 쓰는지, `external_contracts.status`를 채우는지 확인 |
 | `--ping`에서 401/403 | `TYPESAFE_API_KEY` 확인 |
 | `--ping`에서 4xx(401/403 제외) | 엔드포인트는 도달 가능. 요청 형식을 TypeSafe API 문서와 대조 |
 | 잘못된 하네스에 블록이 들어감 | 해당 파일에서 마커 블록을 지우고 `--harness`로 재실행 |
 
 ## 버전
 
+- **2.5.1-draft** — inspector/researcher가 전혀 호출되지 않던 문제 수정: 긍정 발동 트리거(INS-1..7, RES-1..5), 호스트 자가 조사 상한(8파일), skip 기록 의무, 조사 지시서 기본값·출력 계약·도구 preflight 추가. Jev 호출 예산 2→5회(조사 지시서는 예산 미소모). 설정 파일명을 `jev_task_routing.json`으로 변경. Jev 14문항·임계값은 그대로.
 - **2.5.0-draft** — v2.4.0을 기계 판독 설정 + 규칙 ID 문서로 분리. 선언만 되고 소비되지 않던 trusted flag 3개(`needs_documentation`, `require_independent_review`, `needs_post_deployment_verification`)와 `inherited_risk_floor`에 소비 규칙·슬롯 부여. Jev 14문항·임계값·역할 설정·스테이지는 v2.4.0과 동일. 상세는 `ROUTING_POLICY.md` 부록 A.
