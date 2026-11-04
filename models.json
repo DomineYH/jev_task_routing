@@ -1,6 +1,6 @@
 {
   "$schema": "./models.schema.json",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "requires_policy_version": ">=2.5.2",
   "note": "Edit this file to change which harness/model/effort each delegated role runs on. The policy file never carries model settings. Prompt overrides in a request still take precedence (MODEL-1).",
   "default": {
@@ -79,6 +79,9 @@
         "medium",
         "high"
       ],
+      "launch_channels": [
+        "herdr_pane"
+      ],
       "notes": "verify effort strings against the installed codex adapter"
     },
     "agy": {
@@ -86,6 +89,9 @@
         "low",
         "medium",
         "high"
+      ],
+      "launch_channels": [
+        "herdr_pane"
       ],
       "notes": "verify against the installed agy adapter"
     },
@@ -96,12 +102,27 @@
         "high",
         "max"
       ],
-      "notes": "'max' used by tester in shipped settings; confirm the adapter accepts it"
+      "launch_channels": [
+        "herdr_pane"
+      ],
+      "notes": "'max' used by tester in shipped settings; confirm the adapter accepts it; must be started in its TUI"
+    },
+    "claude": {
+      "efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "launch_channels": [
+        "herdr_pane"
+      ],
+      "notes": "same harness as a Claude Code host: still a Herdr pane, never the host's Agent/subagent tool (ORDER-9)"
     }
   },
   "rule_refs": [
     "MODEL-1",
     "MODEL-3",
-    "MODEL-5"
+    "MODEL-5",
+    "ORDER-9"
   ]
 }

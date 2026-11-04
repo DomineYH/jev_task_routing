@@ -122,11 +122,13 @@ models["router"] = O(
     availability_reverified=False,
 )
 models["adapters"] = O(
-    codex=O(efforts=["low", "medium", "high"], notes="verify effort strings against the installed codex adapter"),
-    agy=O(efforts=["low", "medium", "high"], notes="verify against the installed agy adapter"),
-    opencode=O(efforts=["low", "medium", "high", "max"], notes="'max' used by tester in shipped settings; confirm the adapter accepts it"),
+    codex=O(efforts=["low", "medium", "high"], launch_channels=["herdr_pane"], notes="verify effort strings against the installed codex adapter"),
+    agy=O(efforts=["low", "medium", "high"], launch_channels=["herdr_pane"], notes="verify against the installed agy adapter"),
+    opencode=O(efforts=["low", "medium", "high", "max"], launch_channels=["herdr_pane"], notes="'max' used by tester in shipped settings; confirm the adapter accepts it; must be started in its TUI"),
+    claude=O(efforts=["low", "medium", "high"], launch_channels=["herdr_pane"], notes="same harness as a Claude Code host: still a Herdr pane, never the host's Agent/subagent tool (ORDER-9)"),
 )
-models["rule_refs"] = ["MODEL-1", "MODEL-3", "MODEL-5"]
+models["version"] = "1.1.0"
+models["rule_refs"] = ["MODEL-1", "MODEL-3", "MODEL-5", "ORDER-9"]
 
 # --------------------------------------------------------------------------
 # Jev: questions verbatim; everything else compact.
@@ -471,6 +473,7 @@ enums = O(
     review_verdict=["PASS", "FAIL", "BLOCKED"],
     rollout_status=["not_performed", "ready_to_merge", "merged", "deployed", "production_verified"],
     order_purpose=sorted({p for r in roles.values() for p in r["order_purposes"]}),
+    launch_channel=["herdr_pane"],
     evidence_label=verification["evidence"]["labels"],
     external_contract_status=["unverified", "verified", "not_applicable"],
     evidence_order_skip_reason=["gap_already_closed_by_host_read", "valid_prior_evidence_reused", "trigger_false_positive", "tool_unavailable_in_worker_session"],
@@ -479,7 +482,7 @@ enums = O(
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
-VERSION = "2.5.4-draft"
+VERSION = "2.5.5-draft"
 task_record = copy.deepcopy(src["task_record_template"])
 task_record["policy_version"] = VERSION
 task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
@@ -503,7 +506,7 @@ templates = O(
         specialist_question=None,
     ),
     evidence_packet=evidence_packet,
-    work_order=copy.deepcopy(src["work_order_contract"]["work_order_template"]),
+    work_order=O(list(src["work_order_contract"]["work_order_template"].items()) + [("launch_channel", "herdr_pane"), ("pane_id", None)]),
     worker_question=copy.deepcopy(src["question_protocol"]["question_template"]),
     task_record=task_record,
 )
@@ -535,6 +538,7 @@ cfg["provenance"] = O(
         "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
         "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
         "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
+        "2.5.5: launch channel fixed to herdr_pane for every delegated role (ORDER-9); work_order gains launch_channel/pane_id; models.json adapters gain launch_channels and a claude entry",
         "2.5.4: modifiers ui_ux/database/security/api_integration also activate on their task_type (MOD-1); CLS-7b analysis x delivery -> NEEDS_CONTEXT; change_kind gains test_only",
         "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)",
     ],
@@ -594,6 +598,15 @@ cfg["delegation"] = O(
     local_discretion="reversible choices preserving objective, scope, contracts, risk assumptions, testing_mode and permissions",
     host_only_decisions=["requirement/design interpretation", "scope/criteria/protected-operation changes", "dependencies/schema/permissions/wider scope", "testing_mode change", "harness/model/effort/workflow change", "new worker or work item", "repair for another worker", "PR/merge/deploy/destructive actions"],
     worker_statuses=enums["worker_status"],
+    launch_channel=O(
+        required="herdr_pane",
+        forbidden=["harness_subagent", "inline_tool_call", "background_agent"],
+        applies_to="every delegated role, every harness — including roles configured on the host's own harness (e.g. claude)",
+        rationale="a subagent inherits the host's working tree, tools, credentials and permissions, is invisible to Herdr and has no pane signals; it satisfies none of SAFE-4, ENF-2, ENF-7 or ORDER-8",
+        record=["work_order.launch_channel", "work_order.pane_id (filled by the host after launch)"],
+        host_native_delegation_tools="Agent/subagent/Task tools of the host harness are not a launch channel for delegated roles; they may be used only for the host's own read-only intake within host_self_inspection_cap, never to perform a role's work",
+        future_option_B="read-only roles on a registered tool-restricted subagent definition — disabled; preconditions listed in ROUTING_POLICY.md ORDER-9",
+    ),
     liveness=O(
         completion_signals=["RESULT_SUBMITTED", "NEEDS_DECISION", "BLOCKED", "heartbeat_timeout"],
         heartbeat_interval_ms=600000,
@@ -603,18 +616,19 @@ cfg["delegation"] = O(
         host_actions_forbidden_while_waiting=["product code edits", "a second writer on the same mutable resources", "accepting the task"],
         minimal_implementation_workers="one implementer per independently movable piece; never fewer reviewers than the workflow requires (WF-2, WF-3)",
     ),
-    rule_refs=["AUTH-2", "AUTH-3", "ORDER-1", "ORDER-8", "Q-1"],
+    rule_refs=["AUTH-2", "AUTH-3", "ORDER-1", "ORDER-8", "ORDER-9", "Q-1"],
 )
 cfg["work_order"] = O(
-    required_fields=["task_id", "order_id", "order_revision", "role_id", "purpose", "objective", "acceptance_criteria", "input_refs", "input_version", "read_scope", "write_scope", "allowed_actions", "stop_conditions", "deliverable", "report_to"],
+    required_fields=["task_id", "order_id", "order_revision", "role_id", "purpose", "objective", "acceptance_criteria", "input_refs", "input_version", "read_scope", "write_scope", "allowed_actions", "stop_conditions", "deliverable", "report_to", "launch_channel"],
     conditional_fields=O(
         at_stage="required after routing; null only for pre-route read-only intake/consultation (inspector, researcher, advisor)",
         testing_decision_ref="required for implementation/prototype/repair orders unless an authorized documented exception",
         verification_plan_ref="required for orders that execute checks or evaluate final verification",
         decision_question="required for advisor",
+        pane_id="null at issuance; the host fills the Herdr pane id immediately after launch (ORDER-9)",
     ),
     empty_semantics=O(write_scope="no target writes", allowed_actions="no executable or external side effects"),
-    rule_refs=["ORDER-1", "ORDER-2", "ORDER-3", "ORDER-4", "ORDER-5"],
+    rule_refs=["ORDER-1", "ORDER-2", "ORDER-3", "ORDER-4", "ORDER-5", "ORDER-9"],
 )
 cfg["jev"] = jev
 cfg["decision"] = decision

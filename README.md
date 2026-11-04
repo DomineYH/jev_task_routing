@@ -203,12 +203,14 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 | inspector/researcher가 전혀 호출되지 않음 | task_record의 `evidence_orders_evaluated.inspector_triggers`가 비어 있는지 확인. 비어 있으면 호스트가 트리거를 평가하지 않은 것 — `unknowns`에 `repo:`/`external:` 접두어를 쓰는지, `external_contracts.status`를 채우는지 확인 |
 | `--ping`에서 401/403 | `models.json#/router/api_key_env`에 적힌 환경변수 확인 |
 | `[FAIL] ... effort 'x' not allowed by adapters` | `models.json`의 역할 effort를 어댑터 허용값으로 바꾸거나, 어댑터가 실제로 받는 값이면 `adapters.<harness>.efforts`에 추가 |
+| 워커가 Herdr pane 대신 백그라운드 서브에이전트로 실행됨 | 정책 위반(ORDER-9). task_record의 `role_work_items.*.launch_channel`을 확인 — `herdr_pane`이 아니면 검증 FAIL. AGENTS/CLAUDE.md 블록이 v2.5.5 이상인지 확인 |
 | 모델을 바꿨는데 적용이 안 됨 | `python3 .routing/resolve_models.py --role <id>`로 출처 확인. 요청의 `prompt_overrides`가 `models.json`보다 우선함(MODEL-1). 이미 해석된 과제는 다음 요청부터 반영 |
 | `--ping`에서 4xx(401/403 제외) | 엔드포인트는 도달 가능. 요청 형식을 TypeSafe API 문서와 대조 |
 | 잘못된 하네스에 블록이 들어감 | 해당 파일에서 마커 블록을 지우고 `--harness`로 재실행 |
 
 ## 버전
 
+- **2.5.5-draft** — 실행 채널 고정(ORDER-9): 모든 위임 역할은 하네스를 불문하고 Herdr pane으로 실행, 호스트의 Agent/서브에이전트 도구는 역할 실행 채널이 아님. `work_order`에 `launch_channel`·`pane_id`, `models.json` 어댑터에 `launch_channels`와 `claude` 항목 추가. 옵션 B(읽기 전용 역할의 제한 서브에이전트)는 전제 조건과 함께 비활성으로 문서화.
 - **2.5.4-draft** — 분류→작업 매핑 감사 반영: ui_ux·database·security·api_integration modifier가 task_type으로도 활성화(MOD-1), analysis×delivery → NEEDS_CONTEXT(CLS-7b), `change_kind`에 `test_only` 추가(EVID-2a).
 - **2.5.3-draft** — AGENTS.md·herdr_orchestrator.md와 대조해 상충 해소: 호스트는 제품 코드를 직접 쓰지 않음(AUTH-1), 문서 우선순위(AUTH-7), 검토 독립성은 '다른 세션 필수·다른 모델 권장'(ROLE-7), 워커 최소화는 구현 워커에만(WF-2), 대기·heartbeat·보고 없는 종료 처리(ORDER-8, `delegation.liveness`). `examples/herdr/` 추가.
 - **2.5.2-draft** — 모델 설정을 `models.json`으로 분리(역할별 harness/model/effort, 기본값, 프로필, 라우터 연결, 어댑터 허용 effort). 정책 파일은 `settings: models.json#/roles/<id>`로 참조만 하며 스키마가 정책 안의 모델 설정을 거부. `resolve_models.py` 추가. 설치 시 `models.json`은 없을 때만 생성.

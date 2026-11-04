@@ -1,6 +1,6 @@
 {
   "$schema": "./jev_task_routing.schema.json",
-  "version": "2.5.4-draft",
+  "version": "2.5.5-draft",
   "policy_doc": "ROUTING_POLICY.md",
   "purpose": "Route development work through the smallest adequate workflow using Jev for semantic classification, the current host coordinator for all task authority, and bounded worker assignments for execution.",
   "nature": "policy configuration; not a runtime enforcement implementation (see ENF-* in policy_doc)",
@@ -29,6 +29,7 @@
       "2.5.1: evidence_packet gains external_contracts and the repo:/external: unknowns convention; task_record gains evidence_orders_evaluated",
       "2.5.1: config file renamed to version-agnostic jev_task_routing.json",
       "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
+      "2.5.5: launch channel fixed to herdr_pane for every delegated role (ORDER-9); work_order gains launch_channel/pane_id; models.json adapters gain launch_channels and a claude entry",
       "2.5.4: modifiers ui_ux/database/security/api_integration also activate on their task_type (MOD-1); CLS-7b analysis x delivery -> NEEDS_CONTEXT; change_kind gains test_only",
       "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)"
     ]
@@ -299,6 +300,22 @@
       "NEEDS_DECISION",
       "BLOCKED"
     ],
+    "launch_channel": {
+      "required": "herdr_pane",
+      "forbidden": [
+        "harness_subagent",
+        "inline_tool_call",
+        "background_agent"
+      ],
+      "applies_to": "every delegated role, every harness — including roles configured on the host's own harness (e.g. claude)",
+      "rationale": "a subagent inherits the host's working tree, tools, credentials and permissions, is invisible to Herdr and has no pane signals; it satisfies none of SAFE-4, ENF-2, ENF-7 or ORDER-8",
+      "record": [
+        "work_order.launch_channel",
+        "work_order.pane_id (filled by the host after launch)"
+      ],
+      "host_native_delegation_tools": "Agent/subagent/Task tools of the host harness are not a launch channel for delegated roles; they may be used only for the host's own read-only intake within host_self_inspection_cap, never to perform a role's work",
+      "future_option_B": "read-only roles on a registered tool-restricted subagent definition — disabled; preconditions listed in ROUTING_POLICY.md ORDER-9"
+    },
     "liveness": {
       "completion_signals": [
         "RESULT_SUBMITTED",
@@ -327,6 +344,7 @@
       "AUTH-3",
       "ORDER-1",
       "ORDER-8",
+      "ORDER-9",
       "Q-1"
     ]
   },
@@ -346,13 +364,15 @@
       "allowed_actions",
       "stop_conditions",
       "deliverable",
-      "report_to"
+      "report_to",
+      "launch_channel"
     ],
     "conditional_fields": {
       "at_stage": "required after routing; null only for pre-route read-only intake/consultation (inspector, researcher, advisor)",
       "testing_decision_ref": "required for implementation/prototype/repair orders unless an authorized documented exception",
       "verification_plan_ref": "required for orders that execute checks or evaluate final verification",
-      "decision_question": "required for advisor"
+      "decision_question": "required for advisor",
+      "pane_id": "null at issuance; the host fills the Herdr pane id immediately after launch (ORDER-9)"
     },
     "empty_semantics": {
       "write_scope": "no target writes",
@@ -363,7 +383,8 @@
       "ORDER-2",
       "ORDER-3",
       "ORDER-4",
-      "ORDER-5"
+      "ORDER-5",
+      "ORDER-9"
     ]
   },
   "jev": {
@@ -1625,6 +1646,9 @@
       "special_test",
       "technical_consultation"
     ],
+    "launch_channel": [
+      "herdr_pane"
+    ],
     "evidence_label": [
       "newly_executed",
       "reused",
@@ -1735,7 +1759,9 @@
       "stop_conditions": [],
       "deliverable": "",
       "report_to": "current_host_session",
-      "decision_question": null
+      "decision_question": null,
+      "launch_channel": "herdr_pane",
+      "pane_id": null
     },
     "worker_question": {
       "task_id": null,
@@ -1752,7 +1778,7 @@
       "task_id": null,
       "revision": null,
       "state_digest": null,
-      "policy_version": "2.5.4-draft",
+      "policy_version": "2.5.5-draft",
       "router_requested_model": null,
       "router_actual_model": null,
       "status": null,

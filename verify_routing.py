@@ -143,6 +143,17 @@ def check_models(routing, cfg, rep):
                 rep.error(f"{rid}: model '{m}' not in adapters.{h}.models (MODEL-3)")
         elif h:
             rep.warning(f"{rid}: harness '{h}' has no adapters entry; effort/model cannot be preflighted statically")
+    # launch channel (ORDER-9)
+    for h, ad in models.get("adapters", {}).items():
+        lc = ad.get("launch_channels")
+        if lc != ["herdr_pane"]:
+            rep.error(f"adapters.{h}.launch_channels must be ['herdr_pane'] (ORDER-9), got {lc}")
+    used_harnesses = {(prof_roles.get(r, {}).get("harness") or models.get("roles", {}).get(r, {}).get("harness")) for r in cfg.get("roles", {})}
+    missing_ad = sorted(h for h in used_harnesses if h and h not in models.get("adapters", {}))
+    if missing_ad:
+        rep.warning(f"harnesses used by roles without an adapters entry (launch channel unconstrained): {missing_ad}")
+    else:
+        rep.ok("every role harness has an adapters entry with launch_channels=[herdr_pane]")
     router = models.get("router", {})
     if router.get("model"):
         rep.ok(f"router: {router.get('provider')} {router.get('model')} via {router.get('api_key_env')}")
@@ -199,6 +210,12 @@ def check_cross_refs(cfg, policy_md, rep):
     else:
         rep.ok(f"Jev call budget per task revision: {budget}")
 
+    wo = cfg.get("templates", {}).get("work_order", {})
+    if wo.get("launch_channel") != "herdr_pane" or "pane_id" not in wo:
+        rep.error("templates.work_order must carry launch_channel='herdr_pane' and pane_id (ORDER-9)")
+    else:
+        rep.ok("work order template fixes launch_channel=herdr_pane")
+
     flags = cfg.get("decision", {}).get("trusted_flags", {})
     noeffect = [k for k, v in flags.items() if not v.get("effect")]
     if noeffect:
@@ -220,6 +237,10 @@ def check_task_records(routing, rep):
         except Exception:
             rep.warning(f"unreadable task record: {r.name}")
             continue
+        for oid, order in (t.get("role_work_items") or {}).items():
+            if order.get("order_id") and order.get("launch_channel") != "herdr_pane":
+                violations += 1
+                rep.error(f"{r.name}: order {oid} launched via {order.get('launch_channel')!r}, not herdr_pane (ORDER-9)")
         ev = t.get("evidence_orders_evaluated") or {}
         fired = set(ev.get("inspector_triggers", [])) | set(ev.get("researcher_triggers", []))
         if not fired:
@@ -231,7 +252,7 @@ def check_task_records(routing, rep):
             violations += 1
             rep.error(f"{r.name}: triggers {sorted(fired)} fired but no evidence order issued and no skip record (EVID-7)")
     if not violations:
-        rep.ok(f"{len(recs)} task record(s): every fired evidence trigger has an order or a skip record")
+        rep.ok(f"{len(recs)} task record(s): every fired evidence trigger has an order or a skip record; all issued orders use herdr_pane")
 
 
 def check_agent_block(project, rep):

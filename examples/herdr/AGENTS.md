@@ -7,7 +7,9 @@ user authorization & repository safeguards → the current work order → `.rout
 `jev_task_routing.json` / `models.json` (what and when) → `herdr_orchestrator.md` (how: panes, worktrees,
 waiting, cleanup) → the rest of this file.
 
-- Workers run under Herdr. Each role's harness/model/effort comes from `.routing/models.json`
+- **Every worker is a Herdr pane, including roles on the `claude` harness.** Your own Agent/subagent/Task tools are
+  not a launch channel for delegated roles (ORDER-9); use them only for your own read-only intake within the
+  8-file cap. Each role's harness/model/effort comes from `.routing/models.json`
   (`python3 .routing/resolve_models.py --role <id>`, MODEL-1); set them explicitly at launch when resolved,
   omit when unset. The `opencode` harness in particular must be started in its TUI environment.
 - Workers are slower and less capable than you: the work order **is** the instruction. Send the order,
@@ -31,11 +33,12 @@ waiting, cleanup) → the rest of this file.
 - Routing, evidence packets, Jev calls and work orders: the jev-routing block below (managed by `init_routing.sh`)
 
 <!-- jev-routing:start (managed by init_routing.sh — do not edit between markers) -->
-## Task routing (jev_task_routing v2.5.4-draft)
+## Task routing (jev_task_routing v2.5.5-draft)
 
 - Policy (rule IDs): `.routing/ROUTING_POLICY.md` · Config: `.routing/jev_task_routing.json` · Models: `.routing/models.json` (the only place harness/model/effort live; MODEL-5) · Schemas: `.routing/*.schema.json`
 - You are the **host** (a.k.a. coordinator; AUTH-1). You never write product code yourself — implementer orders do. Only the host issues work orders and launches workers (AUTH-2). No worker without an issued, schema-valid work order (ORDER-1).
 - Precedence when documents disagree (AUTH-7): user authorization & repository safeguards → current order → this policy → the harness operations doc (how to run panes/worktrees) → other prose in this file.
+- **Every delegated role runs in a Herdr pane** — also roles on your own harness. Your Agent/subagent/Task tools are not a launch channel for roles; use them only for your own read-only intake (ORDER-9). Record `launch_channel` and `pane_id` in the order.
 - After dispatch, wait for RESULT_SUBMITTED / NEEDS_DECISION / BLOCKED / heartbeat timeout; check a silent pane every 600 000 ms, two silent checks → BLOCKED and reissue. An exit without a report is not a result (ORDER-8).
 - Per task: build the evidence packet (EVID-1..5; read at most 8 files yourself) → attest `trusted_flags` from your own inspection only, `null` when unknown (EVID-5) → **evaluate `evidence_orders.inspector_triggers` (INS-*) and `researcher_triggers` (RES-*)**; if any holds, issue that evidence order with `order_defaults` BEFORE calling Jev, or record a skip reason — silent skipping is a violation (EVID-6, EVID-7) → one Jev call with all 14 questions (CLS-1) → apply `decision.rules` in order → write `.routing/tasks/<task_id>.json` (`templates.task_record`, including `evidence_orders_evaluated`).
 - Prefix every `evidence_packet.unknowns` entry with `repo:` or `external:`; set `external_contracts.status = unverified` when an external API contract changes and no local authoritative source covers it.

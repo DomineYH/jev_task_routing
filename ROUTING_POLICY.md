@@ -1,4 +1,4 @@
-# Jev Task Routing Policy — v2.5.4-draft
+# Jev Task Routing Policy — v2.5.5-draft
 
 Normative companion to `jev_task_routing.json` and `models.json`. The policy JSON holds every machine-readable value except model settings (thresholds, stage lists, templates, the Jev question rubric); `models.json` holds harness/model/effort for every delegated role, the router connection, profiles and adapter capabilities. This document holds the rules, each stated **once** under a stable ID. JSON fields named `rule_refs` point here. When the two disagree, the JSON value wins for numbers and enums; this document wins for behavior.
 
@@ -73,6 +73,10 @@ Settings and structured fields are in `roles`. Only behavior that the JSON canno
 **ORDER-7 Evidence orders.** Inspector and researcher orders use `evidence_orders.order_defaults`: `at_stage = null` (pre-route), `purpose` per role, `read_scope` may use the scope tokens `repository:read-only` and `network:web` instead of enumerated paths (the role exists precisely because the host does not yet know the paths), `write_scope` contains the evidence report path `.routing/evidence/<order_id>.json`, and `evidence_gap` names the trigger ID(s) and the exact question to close. Before issuing, the host preflights the worker session's tools (`evidence_orders.tool_preflight`). The returned report is merged into the evidence packet by the host; the worker's narrative is not trusted beyond its cited refs (EVID-5).
 
 **ORDER-8 Waiting and liveness.** After dispatch the host waits for a pane signal from `delegation.liveness.completion_signals`: `RESULT_SUBMITTED`, `NEEDS_DECISION`, `BLOCKED`, or a heartbeat timeout. Every `heartbeat_interval_ms` (600 000 ms) without a signal the host checks the pane's status; after `silent_checks_before_blocked` (2) silent checks it marks the order `BLOCKED` and reissues or escalates. A worker that exited without a report has **not** submitted a result: its artifacts are not accepted (AUTH-5); the host records the exit, inspects only for diagnosis, and reissues under a new revision. While waiting the host may answer worker questions (Q-2), issue read-only evidence or consultation orders, inspect returned reports and record state; it may not edit product code, start a second writer on the same mutable resources, or accept the task. Workers never relay messages between panes (AUTH-2).
+
+**ORDER-9 Launch channel.** Every delegated role is launched as a **Herdr pane** (`delegation.launch_channel.required`), whatever its harness — including a role configured on the same harness as the host (a `claude` worker under a Claude Code host is still a pane). The host harness's own Agent, subagent, Task or background-execution tools are **not** a launch channel for delegated roles: a subagent inherits the host's working tree, tools, credentials and permissions, is invisible to Herdr, and emits none of the ORDER-8 signals, so it satisfies none of SAFE-4, ENF-2, ENF-7 or ORDER-8. Those tools may serve only the host's own read-only intake within `host_self_inspection_cap` (EVID-6), never a role's work. The order records `launch_channel = herdr_pane` at issuance and the host fills `pane_id` immediately after launch; an order whose work was performed through any other channel is not an issued order and its result is not accepted (AUTH-5). `models.json#/adapters/<harness>/launch_channels` lists the permitted channels per harness and is checked by `verify_routing`.
+
+*Option B (disabled).* Read-only roles on a registered, tool-restricted subagent definition may become a second channel only after all of: (1) a per-role subagent definition exists in the repository with no shell/write tools, and `verify_routing` can read it; (2) router and deployment credentials are provably not visible to that subagent; (3) `launch_channel` is recorded and aggregated in task records; (4) shadow data shows pane overhead for read-only roles is a material share of task time. Until then this rule has no exceptions.
 
 **Q-1 Worker questions.** Ask when a necessary fact stays unresolved after bounded permitted inspection, instructions conflict, or the next action would cross the order's scope/design/risk/testing/permission boundary. Do not ask for delegated reversible choices; batch nonurgent questions. Stop the affected step first, then return `NEEDS_DECISION` (`templates.worker_question`: question, evidence, consequence of guessing, recommendation) or `BLOCKED` for a nonresolvable constraint. While waiting, continue only authorized independent work not invalidated by the question; silence is never approval. Transport: authenticated host channel if available, else return the structured question and yield.
 
@@ -187,7 +191,7 @@ Stage lists live in `workflows`; one-line stage contracts in `stages`.
 These are preconditions for using any rule above in automation. None is satisfied by this document, the JSON, or a version-allowlist change.
 
 **ENF-1** Verify that every launch and order revision originates from the controlling session; host identity is a property of the execution channel, never a string a worker supplies.
-**ENF-2** Constrain each child harness/adapter's tools, paths, credentials and side effects to its order; block worker-side orchestration through agent tools, MCP, shell, scripts and CLIs; do not disable the host's own dispatch.
+**ENF-2** Constrain each child harness/adapter's tools, paths, credentials and side effects to its order; block worker-side orchestration through agent tools, MCP, shell, scripts and CLIs; do not disable the host's own dispatch. The host's dispatch capability means launching Herdr panes (ORDER-9) — the executor must reject a role dispatched through the host harness's subagent tools.
 **ENF-3** Removing an edit tool does not make a shell-enabled agent read-only; account for command execution and test side effects with permissions or isolation.
 **ENF-4** Keep review and advisory work read-only on the target; tests create only authorized disposable outputs; conflicting orders never target the same mutable resources.
 **ENF-5** If required restrictions or actual model settings cannot be enforced or verified by the installed adapter, disclose and block; never claim policy guarantees compliance.
@@ -209,6 +213,15 @@ These are preconditions for using any rule above in automation. None is satisfie
 ---
 
 ## Appendix A — Changes from v2.4.0
+
+### v2.5.5-draft (2026-11-04) — launch channel
+
+Observed: with a role configured on the host's own harness (`claude`), the host ran the role as a background subagent instead of a Herdr pane. Root cause: no document required a pane; `claude` had no adapter entry; the order did not record how a worker was launched.
+
+1. ORDER-9 + `delegation.launch_channel`: every delegated role is a Herdr pane; host subagent tools are not a launch channel for roles. Option B (read-only roles on tool-restricted subagents) documented as disabled with its preconditions.
+2. `work_order` gains `launch_channel` (schema: only `herdr_pane`) and `pane_id`.
+3. `models.json` adapters gain `launch_channels`; new `claude` adapter entry.
+4. ENF-2 clarified; `verify_routing` checks adapters, the order template and recorded orders.
 
 ### v2.5.4-draft (2026-11-03) — classification → work audit
 

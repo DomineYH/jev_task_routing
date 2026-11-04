@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schemas/jev_task_routing.schema.json",
   "title": "Jev task routing policy configuration",
-  "description": "Schema for jev_task_routing.json (v2.5.4-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
+  "description": "Schema for jev_task_routing.json (v2.5.5-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -191,7 +191,8 @@
         "worker_self_delegation",
         "work_order_required",
         "require_authenticated_host_order",
-        "liveness"
+        "liveness",
+        "launch_channel"
       ],
       "properties": {
         "dispatch_owner": {
@@ -269,6 +270,44 @@
               }
             },
             "minimal_implementation_workers": {
+              "type": "string"
+            }
+          }
+        },
+        "launch_channel": {
+          "type": "object",
+          "required": [
+            "required",
+            "forbidden",
+            "applies_to",
+            "record",
+            "host_native_delegation_tools"
+          ],
+          "properties": {
+            "required": {
+              "const": "herdr_pane"
+            },
+            "forbidden": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            },
+            "applies_to": {
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/stringList"
+            },
+            "host_native_delegation_tools": {
+              "type": "string"
+            },
+            "future_option_B": {
               "type": "string"
             }
           }
@@ -942,7 +981,8 @@
         "review_verdict",
         "rollout_status",
         "order_purpose",
-        "evidence_label"
+        "evidence_label",
+        "launch_channel"
       ],
       "additionalProperties": {
         "$ref": "#/$defs/stringList"
@@ -1890,7 +1930,9 @@
         "stop_conditions",
         "deliverable",
         "report_to",
-        "decision_question"
+        "decision_question",
+        "launch_channel",
+        "pane_id"
       ],
       "additionalProperties": false,
       "properties": {
@@ -1997,6 +2039,17 @@
             "null"
           ],
           "description": "For inspector/researcher orders: the specific gap (trigger id + question) the order must close."
+        },
+        "launch_channel": {
+          "const": "herdr_pane",
+          "description": "The only permitted launch channel (ORDER-9). Subagent/background execution is rejected by schema."
+        },
+        "pane_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Herdr pane id, filled by the host after launch."
         }
       },
       "allOf": [

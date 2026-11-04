@@ -5,6 +5,7 @@
 ## 1. 시작 전 점검
 - 현재 Herdr 서버·세션에서 사용 가능한 워커, pane, 작업 디렉토리를 확인한다.
 - 역할별 harness/model/effort는 `python3 .routing/resolve_models.py --role <id>`로 해석해 pane을 띄울 때 명시한다(MODEL-1). 해석 결과가 비어 있는 필드는 인자를 생략하고 하네스 기본값을 쓴다. `opencode` 하네스는 반드시 TUI 환경에서 시작한다.
+- **모든 위임 역할은 Herdr pane으로 띄운다.** 호스트와 같은 하네스(claude)에 설정된 역할도 예외가 아니다. 호스트 하네스의 Agent/서브에이전트/백그라운드 실행 도구는 역할 실행 채널이 아니며(ORDER-9), 호스트 자신의 읽기 전용 조사(8파일 상한)에만 쓴다. 지시서에 `launch_channel=herdr_pane`을 적고 띄운 직후 `pane_id`를 채운다.
 - 해당 역할에 필요한 도구(파일 읽기·검색, researcher는 웹 접근)가 pane에 있는지 먼저 확인한다(`evidence_orders.tool_preflight`). 없으면 그 역할은 BLOCKED이고, 호스트가 대신 기억으로 답하지 않는다(EVID-7).
 
 ## 2. 워커 재사용과 분할

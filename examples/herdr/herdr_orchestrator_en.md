@@ -5,6 +5,7 @@ This document covers only **how** workers are launched, waited on and wound down
 ## 1. Before starting
 - Check the workers, panes and working directories available in the current Herdr server and session.
 - Resolve each role's harness/model/effort with `python3 .routing/resolve_models.py --role <id>` and set them explicitly when launching the pane (MODEL-1). For any field that resolves to nothing, omit the argument and let the harness default apply. The `opencode` harness must always be started in its TUI environment.
+- **Every delegated role is launched as a Herdr pane.** Roles configured on the host's own harness (`claude`) are no exception. The host harness's Agent/subagent/background-execution tools are not a launch channel for roles (ORDER-9); use them only for the host's own read-only intake within the 8-file cap. Record `launch_channel=herdr_pane` in the order and fill `pane_id` right after launch.
 - Confirm that the pane has the tools the role needs (file read/search; web access for researcher) — see `evidence_orders.tool_preflight`. If a tool is missing, that role is BLOCKED; the host does not answer the gap from memory instead (EVID-7).
 
 ## 2. Reusing and splitting workers
