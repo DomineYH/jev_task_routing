@@ -19,7 +19,7 @@ HARNESS=""
 PING=0
 AUTH_CHECK=1
 DEST=".routing"
-POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json hooks/jev_order9_guard.py hooks/hooks.example.json)
+POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py migrate_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json hooks/jev_order9_guard.py hooks/hooks.example.json)
 HOOK_SCOPE="user"
 HOOK_SCOPE_SET=0
 UNINSTALL_HOOKS=0
@@ -158,7 +158,7 @@ printf '%s    source revision: %s%s\n' "$c_dim" "$SRC_COMMIT" "$c_off"
 # ---------------------------------------------------------------- 3. install
 info "3/6 Installing into $DEST/"
 mkdir -p "$DEST/tasks"
-for f in jev_task_routing.json jev_task_routing.schema.json models.schema.json resolve_models.py ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
+for f in jev_task_routing.json jev_task_routing.schema.json models.schema.json resolve_models.py migrate_models.py ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
   if [[ -f "$DEST/$f" ]] && ! cmp -s "$SRC/$f" "$DEST/$f"; then
     cp "$DEST/$f" "$DEST/$f.bak"; warn "updated $DEST/$f (previous copy saved as $f.bak)"
   fi
@@ -168,7 +168,11 @@ chmod +x "$DEST/verify_routing.py" "$DEST/resolve_models.py"
 # models.json is user-edited: create once, keep an always-fresh example beside it
 cp "$SRC/models.json" "$DEST/models.example.json"
 if [[ -f "$DEST/models.json" ]]; then
-  cmp -s "$SRC/models.json" "$DEST/models.json" || warn "kept your $DEST/models.json; shipped defaults changed — diff against $DEST/models.example.json"
+  if ! cmp -s "$SRC/models.json" "$DEST/models.json"; then
+    warn "kept your $DEST/models.json (role settings untouched); applying additive schema migration"
+    python3 "$DEST/migrate_models.py" "$DEST/models.json" "$SRC/models.json" || warn "models.json migration failed — run: python3 $DEST/migrate_models.py $DEST/models.json $DEST/models.example.json"
+    printf '%s    diff against %s/models.example.json to review other shipped changes%s\n' "$c_dim" "$DEST" "$c_off"
+  fi
 else
   cp "$SRC/models.json" "$DEST/models.json"; printf '%s    created %s/models.json (edit to change role models)%s\n' "$c_dim" "$DEST" "$c_off"
 fi

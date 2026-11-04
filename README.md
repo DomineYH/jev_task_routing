@@ -226,6 +226,12 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 
 같은 명령을 다시 실행하면 됩니다. 변경된 파일은 `.bak`으로 백업되고, 지시 블록은 마커 사이만 교체되며, `repo_checks.json`과 `tasks/`는 건드리지 않습니다.
 
+`models.json`은 사용자 편집 파일이라 **역할·기본값·프로필·라우터 설정을 그대로 두고**, 새 스키마가 요구하는 항목만 `migrate_models.py`가 추가합니다(예: `adapters.*.launch_channels`, 역할이 쓰는 하네스의 어댑터 항목). 마이그레이션 전 사본은 `models.json.pre-migrate.bak`에 남습니다. 수동 실행:
+
+```bash
+python3 .routing/migrate_models.py .routing/models.json .routing/models.example.json --dry-run
+```
+
 ```bash
 bash /tmp/jtr/init_routing.sh --ref v2.5.0
 ```
@@ -241,6 +247,7 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 | `[FAIL] ... triggers fired but no evidence order issued and no skip record` | 호스트가 inspector/researcher를 조용히 건너뜀. 해당 task_record의 `evidence_orders_evaluated`에 `issued` 또는 `skipped`를 채우고, AGENTS/CLAUDE.md 블록이 최신인지 확인 |
 | inspector/researcher가 전혀 호출되지 않음 | task_record의 `evidence_orders_evaluated.inspector_triggers`가 비어 있는지 확인. 비어 있으면 호스트가 트리거를 평가하지 않은 것 — `unknowns`에 `repo:`/`external:` 접두어를 쓰는지, `external_contracts.status`를 채우는지 확인 |
 | `--ping`에서 401/403 | `models.json#/router/api_key_env`에 적힌 환경변수 확인 |
+| `[FAIL] models.json violates models.schema.json ... 'launch_channels' is a required property` | 구버전 `models.json`. `init_routing.sh`를 다시 실행하면 자동 마이그레이션되며, 수동으로는 `python3 .routing/migrate_models.py .routing/models.json .routing/models.example.json` |
 | `[FAIL] ... effort 'x' not allowed by adapters` | `models.json`의 역할 effort를 어댑터 허용값으로 바꾸거나, 어댑터가 실제로 받는 값이면 `adapters.<harness>.efforts`에 추가 |
 | 워커가 Herdr pane 대신 백그라운드 서브에이전트로 실행됨 | 정책 위반(ORDER-9). task_record의 `role_work_items.*.launch_channel`을 확인 — `herdr_pane`이 아니면 검증 FAIL. AGENTS/CLAUDE.md 블록이 v2.5.5 이상인지 확인 |
 | 모델을 바꿨는데 적용이 안 됨 | `python3 .routing/resolve_models.py --role <id>`로 출처 확인. 요청의 `prompt_overrides`가 `models.json`보다 우선함(MODEL-1). 이미 해석된 과제는 다음 요청부터 반영 |
