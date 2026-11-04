@@ -245,35 +245,86 @@ def check_cross_refs(cfg, policy_md, rep):
         rep.ok("every trusted flag has a consumption rule")
 
 
-def check_task_records(routing, rep):
-    """Surface EVID-7 violations in recorded tasks: a trigger fired but no order and no skip record."""
+def _iter_orders(items):
+    """Yield (label, order_dict) from role_work_items in any shape the host may have written:
+    {id: order}, {role: [order, ...]}, [order, ...]. Non-dict leaves are yielded with order=None."""
+    if isinstance(items, dict):
+        for k, v in items.items():
+            if isinstance(v, dict):
+                yield str(k), v
+            elif isinstance(v, list):
+                for i, o in enumerate(v):
+                    yield f"{k}[{i}]", (o if isinstance(o, dict) else None)
+            else:
+                yield str(k), None
+    elif isinstance(items, list):
+        for i, o in enumerate(items):
+            yield f"[{i}]", (o if isinstance(o, dict) else None)
+
+
+def check_task_records(routing, rep, schema=None):
+    """Surface EVID-7 / ORDER-9 violations in recorded tasks without ever crashing on a malformed record."""
     recs = sorted((routing / "tasks").glob("*.json"))
     if not recs:
         rep.ok("no task records yet (shadow mode not started)")
         return
+    validator = None
+    if schema and "taskRecord" in schema.get("$defs", {}):
+        try:
+            from jsonschema import Draft202012Validator
+            validator = Draft202012Validator({"$ref": "#/$defs/taskRecord", "$defs": schema["$defs"]})
+        except ImportError:
+            pass
     violations = 0
     for r in recs:
         try:
             t = json.loads(r.read_text(encoding="utf-8"))
-        except Exception:
-            rep.warning(f"unreadable task record: {r.name}")
-            continue
-        for oid, order in (t.get("role_work_items") or {}).items():
-            if order.get("order_id") and order.get("launch_channel") != "herdr_pane":
-                violations += 1
-                rep.error(f"{r.name}: order {oid} launched via {order.get('launch_channel')!r}, not herdr_pane (ORDER-9)")
-        ev = t.get("evidence_orders_evaluated") or {}
-        fired = set(ev.get("inspector_triggers", [])) | set(ev.get("researcher_triggers", []))
-        if not fired:
-            continue
-        issued = set(ev.get("issued", []))
-        skipped = {tid for s_ in ev.get("skipped", []) for tid in s_.get("trigger_ids", [])}
-        covered = bool(issued) or fired <= skipped
-        if not covered:
+        except Exception as e:
             violations += 1
-            rep.error(f"{r.name}: triggers {sorted(fired)} fired but no evidence order issued and no skip record (EVID-7)")
+            rep.error(f"{r.name}: unreadable task record ({e})")
+            continue
+        if not isinstance(t, dict):
+            violations += 1
+            rep.error(f"{r.name}: task record must be a JSON object (templates.task_record), got {type(t).__name__}")
+            continue
+        try:
+            if validator is not None:
+                errs = sorted(validator.iter_errors(t), key=lambda e: list(e.path))
+                if errs:
+                    violations += 1
+                    rep.error(f"{r.name}: does not match templates.task_record schema ({len(errs)} error(s)); the host must write records in that shape")
+                    for e in errs[:4]:
+                        got = type(e.instance).__name__ if e.validator == "type" else e.message[:100]
+                        print("         - /" + "/".join(map(str, e.path)) + f": {e.validator} — " + (f"expected {e.validator_value}, got {got}" if e.validator == "type" else got))
+            items = t.get("role_work_items") or {}
+            if items and not isinstance(items, dict):
+                rep.warning(f"{r.name}: role_work_items should be an object keyed by order id, got {type(items).__name__}")
+            for label, order in _iter_orders(items):
+                if order is None:
+                    violations += 1
+                    rep.error(f"{r.name}: role_work_items[{label}] is not a work-order object")
+                    continue
+                if order.get("order_id") and order.get("launch_channel") != "herdr_pane":
+                    violations += 1
+                    rep.error(f"{r.name}: order {label} launched via {order.get('launch_channel')!r}, not herdr_pane (ORDER-9)")
+            ev = t.get("evidence_orders_evaluated") or {}
+            if not isinstance(ev, dict):
+                violations += 1
+                rep.error(f"{r.name}: evidence_orders_evaluated must be an object")
+                continue
+            fired = set(ev.get("inspector_triggers") or []) | set(ev.get("researcher_triggers") or [])
+            if not fired:
+                continue
+            issued = set(ev.get("issued") or [])
+            skipped = {tid for s_ in (ev.get("skipped") or []) if isinstance(s_, dict) for tid in (s_.get("trigger_ids") or [])}
+            if not (issued or fired <= skipped):
+                violations += 1
+                rep.error(f"{r.name}: triggers {sorted(fired)} fired but no evidence order issued and no skip record (EVID-7)")
+        except Exception as e:  # never crash the whole verification on one bad record
+            violations += 1
+            rep.error(f"{r.name}: could not audit record ({type(e).__name__}: {e})")
     if not violations:
-        rep.ok(f"{len(recs)} task record(s): every fired evidence trigger has an order or a skip record; all issued orders use herdr_pane")
+        rep.ok(f"{len(recs)} task record(s): schema-conformant; every fired evidence trigger has an order or a skip record; all issued orders use herdr_pane")
 
 
 def check_agent_block(project, rep):
@@ -411,7 +462,7 @@ def main():
     print("[5/9] agent instructions")
     check_agent_block(project, rep)
     print("[6/9] task records (EVID-7 / ORDER-9)")
-    check_task_records(routing, rep)
+    check_task_records(routing, rep, schema)
     print("[7/9] ORDER-9 guard hook")
     check_hook(project, routing, rep)
     print("[8/9] install record")
