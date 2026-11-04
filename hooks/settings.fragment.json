@@ -1,0 +1,13 @@
+{
+  "_comment": "What init_routing.sh merges into the chosen Claude Code settings file. user scope uses $HOME/.claude/hooks/, project/local scope use $CLAUDE_PROJECT_DIR/.routing/hooks/.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$HOME/.claude/hooks/jev_order9_guard.py\"", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

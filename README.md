@@ -77,12 +77,51 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 | models | `models.json`이 스키마 통과, 정책의 모든 역할이 harness/model/effort를 해석할 수 있음, `active_profile` 존재, 어댑터 허용 effort 위반 없음 (MODEL-1/3/5) | FAIL |
 | cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher 트리거 비어 있지 않음, Jev 예산 | FAIL |
 | agent instructions | CLAUDE.md 또는 AGENTS.md에 라우팅 블록 존재 | FAIL |
+| ORDER-9 guard hook | Claude Code 프로젝트면 user/project/local 중 한 곳에 훅 등록 여부, `hooks.json` mode 유효성 | WARN/FAIL |
 | task records | 기록된 과제마다 발동한 inspector/researcher 트리거에 지시서 또는 skip 기록이 있는지 (EVID-7) | FAIL |
 | install record | INSTALLED.json 버전 = 설정 버전 | WARN |
 | environment | `TYPESAFE_API_KEY` 설정 여부 | WARN |
 | ping (옵션) | 엔드포인트 도달·인증 확인, `response.model`이 고정 버전과 같은지 | FAIL/WARN |
 
 `--ping`은 도달성·인증 스모크 테스트입니다. 요청 본문 형식은 TypeSafe 현재 API 문서로 확인해야 하며, 2xx가 아니더라도 401/403이 아니면 "도달 가능, 페이로드 형식 조정 필요"로 보고합니다.
+
+## Claude Code 훅 (ORDER-9 가드)
+
+Claude Code를 호스트로 쓸 때, 위임 역할을 Herdr pane 대신 Claude Code의 Agent/Task 서브에이전트로 돌리는 것을 **도구 호출 단계에서 차단**하는 PreToolUse 훅입니다. 정책 문서와 검증기는 "기록된 것"만 잡지만, 이 훅은 호출 자체를 막습니다.
+
+설치 스크립트가 하네스를 Claude Code로 감지하면 자동으로 등록합니다. 스코프는 `--hooks`로 선택하고 **기본값은 `user`** 입니다.
+
+| 스코프 | 설정 파일 | 스크립트 위치 | 적용 범위 |
+|---|---|---|---|
+| `user` (기본) | `~/.claude/settings.json` | `~/.claude/hooks/jev_order9_guard.py` | 이 컴퓨터의 모든 프로젝트. 단, `.routing/`이 없는 프로젝트에서는 아무 일도 하지 않음 |
+| `project` | `.claude/settings.json` (커밋됨) | `.routing/hooks/jev_order9_guard.py` | 이 저장소를 쓰는 모든 사람 |
+| `local` | `.claude/settings.local.json` (커밋 안 됨) | `.routing/hooks/jev_order9_guard.py` | 이 저장소, 나만 |
+| `none` | — | — | 등록하지 않음 |
+
+```bash
+bash init_routing.sh                   # Claude Code 감지 시 user 스코프에 등록
+bash init_routing.sh --hooks project   # 팀 공유
+bash init_routing.sh --hooks local
+bash init_routing.sh --hooks none
+bash init_routing.sh --uninstall-hooks # 세 스코프에서 모두 제거
+```
+
+한 스코프에 등록하면 다른 스코프의 기존 등록은 제거해 중복 실행을 막습니다. 기존 `settings.json`의 다른 훅은 건드리지 않고 `hooks.PreToolUse` 배열에 항목 하나만 병합합니다. Claude Code 안에서 `/hooks`로 등록 상태를 볼 수 있습니다.
+
+**판정 규칙** (`.routing/hooks.json`으로 조정):
+
+| Agent/Task 호출 내용 | 판정 |
+|---|---|
+| `subagent_type`이 역할 ID, 또는 프롬프트에 "You are the implementer"류 역할 지정 | **deny** |
+| 프롬프트에 작업 지시서 필드(`order_id`, `write_scope`, `acceptance_criteria` …) | **deny** |
+| 구현·수정·테스트 실행·커밋·배포 등 쓰기/실행 의도(한국어 포함) | **deny** (AUTH-1) |
+| `allow_subagent_types`(기본 `["Explore"]`)에 있고 위 신호 없음 | allow (조용히) |
+| 목록에 없는 타입이고 위 신호 없음 | `unlisted_subagent_type`에 따라 **ask**(기본) / deny / allow |
+| Agent/Task 이외 도구, 또는 `.routing/`이 없는 디렉터리 | 관여하지 않음 |
+
+`mode`를 `ask`로 두면 모든 deny가 사용자 확인으로 바뀌고, `log`로 두면 차단 없이 `.routing/hook_log.jsonl`에만 기록합니다(섀도 모드에서 오탐 확인용으로 유용). 모든 판정은 로그에 남습니다.
+
+한계: 호스트가 역할 이름도 지시서 필드도 쓰기 동사도 없이 서브에이전트에 작업을 넘기면 통과합니다. 그런 경우는 `ask`로 사용자에게 올라오므로, 로그에서 `ask`가 반복되는 패턴을 보고 `allow_subagent_types`를 조정하세요.
 
 ## 설치 후 해야 할 것
 
@@ -210,6 +249,7 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 
 ## 버전
 
+- **2.5.5-draft (+hooks)** — Claude Code PreToolUse 훅 `hooks/jev_order9_guard.py` 추가: Agent/Task 서브에이전트로 위임 역할을 돌리는 호출을 차단. `init_routing.sh --hooks user|project|local|none`(기본 user), `--uninstall-hooks`.
 - **2.5.5-draft** — 실행 채널 고정(ORDER-9): 모든 위임 역할은 하네스를 불문하고 Herdr pane으로 실행, 호스트의 Agent/서브에이전트 도구는 역할 실행 채널이 아님. `work_order`에 `launch_channel`·`pane_id`, `models.json` 어댑터에 `launch_channels`와 `claude` 항목 추가. 옵션 B(읽기 전용 역할의 제한 서브에이전트)는 전제 조건과 함께 비활성으로 문서화.
 - **2.5.4-draft** — 분류→작업 매핑 감사 반영: ui_ux·database·security·api_integration modifier가 task_type으로도 활성화(MOD-1), analysis×delivery → NEEDS_CONTEXT(CLS-7b), `change_kind`에 `test_only` 추가(EVID-2a).
 - **2.5.3-draft** — AGENTS.md·herdr_orchestrator.md와 대조해 상충 해소: 호스트는 제품 코드를 직접 쓰지 않음(AUTH-1), 문서 우선순위(AUTH-7), 검토 독립성은 '다른 세션 필수·다른 모델 권장'(ROLE-7), 워커 최소화는 구현 워커에만(WF-2), 대기·heartbeat·보고 없는 종료 처리(ORDER-8, `delegation.liveness`). `examples/herdr/` 추가.

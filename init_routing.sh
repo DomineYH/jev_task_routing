@@ -19,7 +19,10 @@ HARNESS=""
 PING=0
 AUTH_CHECK=1
 DEST=".routing"
-POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json)
+POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json hooks/jev_order9_guard.py hooks/hooks.example.json)
+HOOK_SCOPE="user"
+HOOK_SCOPE_SET=0
+UNINSTALL_HOOKS=0
 MARK_START="<!-- jev-routing:start"
 MARK_END="<!-- jev-routing:end -->"
 
@@ -39,6 +42,8 @@ Run from the project root:
   bash init_routing.sh --harness both
   bash init_routing.sh --ping               # also smoke-test the Jev endpoint (needs TYPESAFE_API_KEY)
   bash init_routing.sh --source /path/or/url --ref main --no-auth-check
+  bash init_routing.sh --hooks user|project|local|none   # Claude Code ORDER-9 guard hook scope (default: user)
+  bash init_routing.sh --uninstall-hooks                  # remove the guard from all three scopes
 
 Exit codes: 0 ok · 1 verification failed · 2 not a git repo · 3 git auth · 4 download · 5 missing dependency
 EOF
@@ -52,6 +57,8 @@ while [[ $# -gt 0 ]]; do
     --harness)  HARNESS="$2"; shift 2 ;;
     --ping)     PING=1; shift ;;
     --no-auth-check) AUTH_CHECK=0; shift ;;
+    --hooks)    HOOK_SCOPE="$2"; HOOK_SCOPE_SET=1; shift 2 ;;
+    --uninstall-hooks) UNINSTALL_HOOKS=1; shift ;;
     -h|--help)  usage ;;
     *) die 1 "unknown option: $1 (see --help)" ;;
   esac
@@ -184,12 +191,15 @@ fi
 if ! grep -qxF "$GI_LINE2" .gitignore; then printf '%s\n' "$GI_LINE2" >> .gitignore; fi
 
 POLICY_VERSION="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$DEST/jev_task_routing.json")"
-python3 - "$DEST/INSTALLED.json" "$POLICY_VERSION" "$REPO_URL" "$SRC_COMMIT" <<'PY'
+write_installed() {
+python3 - "$DEST/INSTALLED.json" "$POLICY_VERSION" "$REPO_URL" "$SRC_COMMIT" "$1" <<'PY'
 import json, sys, datetime
 json.dump({"policy_version": sys.argv[2], "source": sys.argv[3], "source_revision": sys.argv[4],
            "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-           "shadow_mode": True}, open(sys.argv[1], "w"), indent=2)
+           "shadow_mode": True, "hook_scope": sys.argv[5]}, open(sys.argv[1], "w"), indent=2)
 PY
+}
+write_installed "pending"
 printf '%s    policy version %s%s\n' "$c_dim" "$POLICY_VERSION" "$c_off"
 
 # ---------------------------------------------------------------- 4. harness instructions
@@ -237,6 +247,82 @@ PY
 for t in "${TARGETS[@]}"; do install_block "$t" "$SRC/AGENTS_ROUTING.md"; done
 printf '%s    harness: %s%s\n' "$c_dim" "$HARNESS" "$c_off"
 
+# ---------------------------------------------------------------- 4b. Claude Code ORDER-9 guard hook
+case "$HOOK_SCOPE" in user|project|local|none) ;; *) die 1 "unknown --hooks '$HOOK_SCOPE' (user | project | local | none)" ;; esac
+mkdir -p "$DEST/hooks"
+cp "$SRC/hooks/jev_order9_guard.py" "$DEST/hooks/jev_order9_guard.py"; chmod +x "$DEST/hooks/jev_order9_guard.py"
+cp "$SRC/hooks/hooks.example.json" "$DEST/hooks/hooks.example.json"
+[[ -f "$DEST/hooks.json" ]] || { cp "$SRC/hooks/hooks.example.json" "$DEST/hooks.json"; printf '%s    created %s/hooks.json (mode=deny)%s\n' "$c_dim" "$DEST" "$c_off"; }
+GI_LINE3="$DEST/hook_log.jsonl"
+grep -qxF "$GI_LINE3" .gitignore || printf '%s\n' "$GI_LINE3" >> .gitignore
+
+hook_settings_path() {
+  case "$1" in
+    user)    echo "$HOME/.claude/settings.json" ;;
+    project) echo "$PROJECT/.claude/settings.json" ;;
+    local)   echo "$PROJECT/.claude/settings.local.json" ;;
+  esac
+}
+hook_command() {
+  case "$1" in
+    user)    echo 'python3 "$HOME/.claude/hooks/jev_order9_guard.py"' ;;
+    *)       echo 'python3 "$CLAUDE_PROJECT_DIR/.routing/hooks/jev_order9_guard.py"' ;;
+  esac
+}
+merge_hook() {  # $1 settings path, $2 command, $3 add|remove
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, sys, pathlib
+path, cmd, action = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+MARK = "jev_order9_guard"
+settings = {}
+if path.exists():
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"cannot parse {path}: {e} — fix it or choose another --hooks scope")
+hooks = settings.setdefault("hooks", {})
+pre = hooks.setdefault("PreToolUse", [])
+pre[:] = [e for e in pre if not any(MARK in (h.get("command") or "") for h in e.get("hooks", []))]
+if action == "add":
+    pre.append({"matcher": "Agent|Task", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+if not pre:
+    hooks.pop("PreToolUse", None)
+if not hooks:
+    settings.pop("hooks", None)
+if action == "remove" and not settings and not path.exists():
+    sys.exit(0)
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(f"    {'registered' if action == 'add' else 'removed'} ORDER-9 guard hook {'in' if action == 'add' else 'from'} {path}")
+PY
+}
+
+if [[ $UNINSTALL_HOOKS -eq 1 ]]; then
+  info "4b/6 Removing ORDER-9 guard hook from all scopes"
+  for sc in user project local; do p="$(hook_settings_path "$sc")"; [[ -f "$p" ]] && merge_hook "$p" "" remove; done
+  HOOK_SCOPE="none"
+elif [[ "$HOOK_SCOPE" != "none" ]]; then
+  if [[ "$HARNESS" == "agents" && $HOOK_SCOPE_SET -eq 0 ]]; then
+    HOOK_SCOPE="none"
+    printf '%s    harness is not Claude Code; skipping Claude Code hook (pass --hooks <scope> to force)%s\n' "$c_dim" "$c_off"
+  else
+    info "4b/6 Registering Claude Code ORDER-9 guard hook (scope: $HOOK_SCOPE)"
+    if [[ "$HOOK_SCOPE" == "user" ]]; then
+      mkdir -p "$HOME/.claude/hooks"
+      cp "$SRC/hooks/jev_order9_guard.py" "$HOME/.claude/hooks/jev_order9_guard.py"; chmod +x "$HOME/.claude/hooks/jev_order9_guard.py"
+      printf '%s    copied guard to %s/.claude/hooks/ (applies to every project that has .routing/)%s\n' "$c_dim" "$HOME" "$c_off"
+    fi
+    merge_hook "$(hook_settings_path "$HOOK_SCOPE")" "$(hook_command "$HOOK_SCOPE")" add
+    # avoid double registration: drop our entry from the other scopes
+    for sc in user project local; do
+      [[ "$sc" == "$HOOK_SCOPE" ]] && continue
+      p="$(hook_settings_path "$sc")"; [[ -f "$p" ]] && grep -q jev_order9_guard "$p" && merge_hook "$p" "" remove
+    done
+  fi
+fi
+
+write_installed "$HOOK_SCOPE"
+
 # ---------------------------------------------------------------- 5. python deps for verification
 info "5/6 Checking Python packages for verification"
 if ! python3 -c 'import jsonschema' 2>/dev/null; then
@@ -266,6 +352,7 @@ if [[ $RC -eq 0 ]]; then
 ${c_grn}Installation complete.${c_off}
   Policy   : $DEST/jev_task_routing.json  (v$POLICY_VERSION, source $SRC_COMMIT)
   Models   : $DEST/models.json  (edit this to change harness/model/effort per role)
+  Hook     : ORDER-9 guard scope=$HOOK_SCOPE  (config: $DEST/hooks.json, log: $DEST/hook_log.jsonl)
   Rules    : $DEST/ROUTING_POLICY.md
   Agents   : ${TARGETS[*]}  (block between jev-routing markers)
   Records  : $DEST/tasks/ and $DEST/evidence/   (git-ignored)

@@ -191,7 +191,7 @@ Stage lists live in `workflows`; one-line stage contracts in `stages`.
 These are preconditions for using any rule above in automation. None is satisfied by this document, the JSON, or a version-allowlist change.
 
 **ENF-1** Verify that every launch and order revision originates from the controlling session; host identity is a property of the execution channel, never a string a worker supplies.
-**ENF-2** Constrain each child harness/adapter's tools, paths, credentials and side effects to its order; block worker-side orchestration through agent tools, MCP, shell, scripts and CLIs; do not disable the host's own dispatch. The host's dispatch capability means launching Herdr panes (ORDER-9) — the executor must reject a role dispatched through the host harness's subagent tools.
+**ENF-2** Constrain each child harness/adapter's tools, paths, credentials and side effects to its order; block worker-side orchestration through agent tools, MCP, shell, scripts and CLIs; do not disable the host's own dispatch. The host's dispatch capability means launching Herdr panes (ORDER-9) — the executor must reject a role dispatched through the host harness's subagent tools. Reference implementation for Claude Code hosts: `hooks/jev_order9_guard.py`, a PreToolUse hook on `Agent|Task` that denies role work, work-order payloads and write/execution intent in subagent calls, allows listed read-only intake types, and logs every decision to `.routing/hook_log.jsonl`; installed by `init_routing.sh --hooks user|project|local` (default `user`).
 **ENF-3** Removing an edit tool does not make a shell-enabled agent read-only; account for command execution and test side effects with permissions or isolation.
 **ENF-4** Keep review and advisory work read-only on the target; tests create only authorized disposable outputs; conflicting orders never target the same mutable resources.
 **ENF-5** If required restrictions or actual model settings cannot be enforced or verified by the installed adapter, disclose and block; never claim policy guarantees compliance.
@@ -222,6 +222,7 @@ Observed: with a role configured on the host's own harness (`claude`), the host 
 2. `work_order` gains `launch_channel` (schema: only `herdr_pane`) and `pane_id`.
 3. `models.json` adapters gain `launch_channels`; new `claude` adapter entry.
 4. ENF-2 clarified; `verify_routing` checks adapters, the order template and recorded orders.
+5. Claude Code enforcement: `hooks/jev_order9_guard.py` (PreToolUse, matcher `Agent|Task`) with per-project `.routing/hooks.json` (`mode` deny|ask|log); registered at user (default), project or local scope by the installer; `verify_routing` warns when a Claude Code project has no registration.
 
 ### v2.5.4-draft (2026-11-03) — classification → work audit
 

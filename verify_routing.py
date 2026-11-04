@@ -269,6 +269,35 @@ def check_agent_block(project, rep):
         rep.error("routing block (jev-routing markers) not found in CLAUDE.md or AGENTS.md")
 
 
+def check_hook(project, routing, rep):
+    """ORDER-9 guard registration in Claude Code settings (user / project / local)."""
+    if not (project / "CLAUDE.md").is_file():
+        rep.ok("no CLAUDE.md: Claude Code hook not required for this harness")
+        return
+    candidates = [Path(os.path.expanduser("~/.claude/settings.json")), project / ".claude" / "settings.json", project / ".claude" / "settings.local.json"]
+    found = []
+    for p in candidates:
+        if p.is_file() and "jev_order9_guard" in p.read_text(encoding="utf-8", errors="ignore"):
+            found.append(str(p))
+    if found:
+        rep.ok(f"ORDER-9 guard hook registered in: {', '.join(found)}")
+        if len(found) > 1:
+            rep.warning("guard registered in more than one scope; it will run twice (harmless but noisy)")
+    else:
+        rep.warning("Claude Code project but no ORDER-9 guard hook registered — run init_routing.sh --hooks user|project|local")
+    hcfg = routing / "hooks.json"
+    if hcfg.is_file():
+        cfg = load_json(hcfg, rep) or {}
+        if cfg.get("mode") not in ("deny", "ask", "log"):
+            rep.error(f"hooks.json mode must be deny|ask|log, got {cfg.get('mode')!r}")
+        elif cfg.get("mode") != "deny":
+            rep.warning(f"hooks.json mode={cfg.get('mode')}: subagent role launches are not blocked, only {cfg.get('mode')}ed")
+    if (routing / "hooks" / "jev_order9_guard.py").is_file():
+        rep.ok("guard script present in .routing/hooks/")
+    else:
+        rep.warning("guard script missing from .routing/hooks/")
+
+
 def check_installed_marker(routing, cfg, rep):
     p = routing / "INSTALLED.json"
     if not p.is_file():
@@ -342,7 +371,7 @@ def main():
     rep = Report(quiet=a.quiet)
     print(f"verify_routing: {project}")
 
-    print("[1/8] files")
+    print("[1/9] files")
     check_files(routing, rep)
     cfg = load_json(routing / "jev_task_routing.json", rep)
     schema = load_json(routing / "jev_task_routing.schema.json", rep)
@@ -352,19 +381,21 @@ def main():
         print(f"\nRESULT: FAIL ({rep.fail} failure(s))")
         return 1
 
-    print("[2/8] schema")
+    print("[2/9] schema")
     check_schema(cfg, schema, rep)
-    print("[3/8] models (MODEL-1/3/5)")
+    print("[3/9] models (MODEL-1/3/5)")
     models = check_models(routing, cfg, rep)
-    print("[4/8] cross references")
+    print("[4/9] cross references")
     check_cross_refs(cfg, policy_md, rep)
-    print("[5/8] agent instructions")
+    print("[5/9] agent instructions")
     check_agent_block(project, rep)
-    print("[6/8] task records (EVID-7)")
+    print("[6/9] task records (EVID-7 / ORDER-9)")
     check_task_records(routing, rep)
-    print("[7/8] install record")
+    print("[7/9] ORDER-9 guard hook")
+    check_hook(project, routing, rep)
+    print("[8/9] install record")
     check_installed_marker(routing, cfg, rep)
-    print("[8/8] environment")
+    print("[9/9] environment")
     check_env(cfg, rep, models)
     if a.ping:
         print("[+]   jev endpoint ping")
