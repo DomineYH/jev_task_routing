@@ -63,8 +63,29 @@ def check_files(routing, rep):
     legacy = sorted(p.name for p in routing.glob("jev_task_routing_v*.json"))
     if legacy:
         rep.warning(f"legacy versioned config present and ignored: {legacy} (rename to .bak or delete)")
-    if (routing / "repo_checks.json").is_file():
+    rc = routing / "repo_checks.json"
+    if rc.is_file():
         rep.ok("present: .routing/repo_checks.json")
+        data = load_json(rc, rep)
+        sch = load_json(routing / "repo_checks.schema.json", rep) if (routing / "repo_checks.schema.json").is_file() else None
+        if data is not None and sch:
+            try:
+                from jsonschema import Draft202012Validator, FormatChecker
+                errs = list(Draft202012Validator(sch, format_checker=FormatChecker()).iter_errors(data))
+                if errs:
+                    rep.error(f"repo_checks.json violates repo_checks.schema.json ({len(errs)} error(s))")
+                    for e in errs[:6]:
+                        print("         - /" + "/".join(map(str, e.path)) + ": " + e.message[:160])
+            except ImportError:
+                pass
+        if data is not None:
+            missing_cmd = [c for c in data.get("required_ci", []) if c not in (data.get("commands") or {})]
+            if missing_cmd:
+                rep.error(f"repo_checks.json: required_ci entries without a commands entry: {missing_cmd}")
+            if not data.get("generated_by") and not data.get("sources"):
+                rep.warning("repo_checks.json looks unedited (no generated_by/sources) — fill it with the prompt in README '설치 후 해야 할 것'")
+            if data.get("unknowns"):
+                rep.warning(f"repo_checks.json has {len(data['unknowns'])} unknown(s) for a human to resolve")
     else:
         rep.warning("missing .routing/repo_checks.json (copy repo_checks.example.json and edit)")
 

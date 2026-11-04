@@ -15,7 +15,7 @@
 | `jev_task_routing.schema.json` | 설정 파일과 런타임 객체(request, evidence_packet, work_order, worker_question, task_record)의 JSON Schema |
 | `ROUTING_POLICY.md` | 규칙 ID(AUTH·MODEL·ROLE·ORDER·Q·EVID·CLS·WF·MOD·VER·SAFE·ENF·VAL) 단일 출처 문서. JSON의 `rule_refs`가 여기를 가리킴 |
 | `AGENTS_ROUTING.md` | 프로젝트의 CLAUDE.md / AGENTS.md에 삽입되는 호스트 지시 블록 |
-| `repo_checks.example.json` | 저장소 필수 CI·명령을 적는 템플릿 |
+| `repo_checks.example.json` / `repo_checks.schema.json` | 저장소 필수 CI·명령을 적는 템플릿과 그 스키마 — 하네스가 채울 수 있도록 README에 프롬프트 제공 |
 | `verify_routing.py` | 설치 검증 스크립트 |
 | `init_routing.sh` | 설치 스크립트 (아래) |
 
@@ -75,6 +75,7 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 | files | 정책 3종·verify·tasks/ 존재, repo_checks.json 존재 | FAIL / WARN |
 | schema | 정책이 JSON Schema를 통과 | FAIL |
 | models | `models.json`이 스키마 통과, 정책의 모든 역할이 harness/model/effort를 해석할 수 있음, `active_profile` 존재, 어댑터 허용 effort 위반 없음 (MODEL-1/3/5) | FAIL |
+| repo_checks | `repo_checks.json`이 `repo_checks.schema.json`을 통과, `required_ci`마다 `commands` 존재, 미편집·unknowns 경고 | FAIL/WARN |
 | cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher 트리거 비어 있지 않음, Jev 예산 | FAIL |
 | agent instructions | CLAUDE.md 또는 AGENTS.md에 라우팅 블록 존재 | FAIL |
 | ORDER-9 guard hook | Claude Code 프로젝트면 user/project/local 중 한 곳에 훅 등록 여부, `hooks.json` mode 유효성 | WARN/FAIL |
@@ -125,7 +126,70 @@ bash init_routing.sh --uninstall-hooks # 세 스코프에서 모두 제거
 
 ## 설치 후 해야 할 것
 
-1. **`.routing/repo_checks.json` 편집** — 저장소의 필수 CI 잡 이름과 실제 명령을 CI와 똑같이 적습니다. 호스트가 verification_plan의 `required_by: repository` 항목을 여기서 채웁니다(VER-5). 브랜치 보호에 리뷰가 필수면 `require_review: true`로 두고, 그러면 minor 워크플로에도 독립 검토가 붙습니다(WF-3).
+1. **`.routing/repo_checks.json` 채우기** — 저장소의 필수 CI 잡 이름과 실제 명령을 CI와 똑같이 적습니다. 호스트가 verification_plan의 `required_by: repository` 항목을 여기서 채웁니다(VER-5). 브랜치 보호에 리뷰가 필수면 `require_review: true`로 두고, 그러면 minor 워크플로에도 독립 검토가 붙습니다(WF-3). 형식은 `.routing/repo_checks.schema.json`에 정의되어 있고 검증기가 검사합니다.
+
+   직접 쓰지 않고 **하네스에게 채우게** 할 수 있습니다. 설치한 프로젝트 루트에서 호스트 세션(Claude Code, Codex, agy, opencode 등 — 모두 같은 프롬프트)을 열고 아래를 그대로 붙여 넣으세요. 이 작업은 라우팅 대상 "과제"가 아니라 설치 후 설정이므로 Jev 호출이나 워커 없이 호스트가 직접 수행해도 됩니다(제품 코드는 건드리지 않음).
+
+   <details open>
+   <summary><b>프롬프트 (English — 모든 하네스 공통)</b></summary>
+
+   ```text
+   Fill in .routing/repo_checks.json for this repository. This is post-install setup, not a routed task: do it yourself, read-only except for that one file. Do not call Jev, do not launch workers, do not touch product code.
+
+   1. Read .routing/repo_checks.schema.json (the required shape) and .routing/repo_checks.example.json.
+   2. Inspect, in this order and only what exists: CI workflow files (.github/workflows/*.yml, .gitlab-ci.yml, .circleci/, Jenkinsfile, azure-pipelines.yml), package manifests and task runners (package.json scripts, pyproject.toml / tox.ini / noxfile.py, Makefile, justfile, Cargo.toml, go.mod, build.gradle, pom.xml), lint/format/typecheck configs, test configs (jest/vitest/pytest/playwright/cypress), and any CONTRIBUTING or README section on running checks.
+   3. If the gh CLI is available and authenticated, run: gh api repos/{owner}/{repo}/branches/{default_branch}/protection — use it to fill branch_protection.require_review and required_status_checks, and record the command in branch_protection.source. If it fails or gh is absent, set require_review to null and source to "not checked".
+   4. Write .routing/repo_checks.json with:
+      - required_ci: the check names a PR must pass (job names from CI, or the script names if there is no CI);
+      - commands: for every required_ci entry, the exact command CI runs (copy it verbatim from the workflow or script; null if it only runs in CI with no local equivalent). Never invent a command that does not exist in the repository;
+      - branch_protection as above;
+      - e2e.command (null if none) and e2e.critical_flows: up to 8 named user journeys you can identify from routes, pages or existing E2E specs — leave empty if unsure;
+      - sources: every file you read; generated_by: your harness and model; generated_on: today's date;
+      - unknowns: anything you could not determine. Do not guess to make unknowns empty.
+   5. Run: python3 .routing/verify_routing.py --quiet — it validates the file against the schema. Fix any [FAIL] about repo_checks.json and run it again.
+   6. Reply with: the final required_ci list and commands, the branch_protection result and how you got it, and the unknowns list for me to resolve. Do not commit.
+   ```
+   </details>
+
+   <details>
+   <summary>같은 프롬프트 (한국어)</summary>
+
+   ```text
+   이 저장소의 .routing/repo_checks.json을 채워 줘. 설치 후 설정이므로 라우팅 과제가 아니다: Jev 호출·워커 실행 없이 네가 직접 하고, 그 파일 하나 외에는 읽기 전용으로, 제품 코드는 건드리지 마.
+
+   1. .routing/repo_checks.schema.json(필수 형식)과 .routing/repo_checks.example.json을 읽어.
+   2. 다음을 이 순서로, 존재하는 것만 조사해: CI 워크플로(.github/workflows/*.yml, .gitlab-ci.yml, .circleci/, Jenkinsfile, azure-pipelines.yml), 패키지 매니페스트·태스크 러너(package.json scripts, pyproject.toml/tox.ini/noxfile.py, Makefile, justfile, Cargo.toml, go.mod, build.gradle, pom.xml), 린트·포맷·타입체크 설정, 테스트 설정(jest/vitest/pytest/playwright/cypress), CONTRIBUTING·README의 검사 실행 안내.
+   3. gh CLI가 있고 로그인돼 있으면 gh api repos/{owner}/{repo}/branches/{default_branch}/protection 를 실행해 branch_protection.require_review와 required_status_checks를 채우고, 실행한 명령을 branch_protection.source에 적어. 실패하거나 gh가 없으면 require_review는 null, source는 "not checked".
+   4. .routing/repo_checks.json에 다음을 써:
+      - required_ci: PR이 통과해야 하는 체크 이름(CI 잡 이름, CI가 없으면 스크립트 이름);
+      - commands: required_ci 항목마다 CI가 실제로 실행하는 명령을 그대로 복사(CI에서만 돌고 로컬 대응이 없으면 null). 저장소에 없는 명령을 만들어 내지 마;
+      - branch_protection: 위 결과;
+      - e2e.command(없으면 null)과 e2e.critical_flows: 라우트·페이지·기존 E2E 스펙에서 식별한 핵심 사용자 흐름 최대 8개, 확신 없으면 비워 둬;
+      - sources: 읽은 파일 전부; generated_by: 네 하네스와 모델; generated_on: 오늘 날짜;
+      - unknowns: 알 수 없었던 것. unknowns를 비우기 위해 추측하지 마.
+   5. python3 .routing/verify_routing.py --quiet 를 실행해 스키마 검증을 통과시켜. repo_checks.json 관련 [FAIL]이 있으면 고치고 다시 실행.
+   6. 최종 required_ci와 commands, branch_protection 결과와 확인 방법, 내가 해결할 unknowns 목록을 답해. 커밋은 하지 마.
+   ```
+   </details>
+
+   하네스별 실행 방법:
+
+   | 하네스 | 방법 |
+   |---|---|
+   | Claude Code | 프로젝트 루트에서 `claude` 실행 후 프롬프트 붙여 넣기. ORDER-9 훅은 Agent 호출만 보므로 이 작업에는 관여하지 않음 |
+   | Codex CLI | `codex` 대화형 세션에 붙여 넣기, 또는 `codex "<프롬프트>"` 로 한 번에 실행 |
+   | agy / opencode / Herdr pane | 호스트 pane의 입력에 그대로 붙여 넣기 |
+
+   결과를 눈으로 한 번 확인하세요 — 특히 `commands`가 CI와 글자 단위로 같은지, `unknowns`에 남은 항목이 무엇인지. 검증기는 `generated_by`·`sources`가 비어 있으면 "미편집"으로 경고하고, `required_ci`에 있는데 `commands`에 없는 항목은 FAIL로 잡습니다.
+
+   <details>
+   <summary>선택: models.json 어댑터 점검 프롬프트</summary>
+
+   ```text
+   Review .routing/models.json against the harnesses actually installed on this machine. Read-only except for that file; no workers, no Jev.
+   For each harness in adapters (codex, agy, opencode, claude): check whether the CLI exists on PATH and which effort/reasoning strings it accepts (consult its --help or config docs if available). Correct adapters.<harness>.efforts to the accepted values, keep launch_channels as ["herdr_pane"], and note in adapters.<harness>.notes how you verified. Do not change roles, default, profiles or router. Then run python3 .routing/resolve_models.py and python3 .routing/verify_routing.py --quiet, and report any role whose effort is now BLOCKED so I can choose a valid value.
+   ```
+   </details>
 2. **역할 모델 조정** — `.routing/models.json`을 편집합니다. 정책 파일에는 모델 설정이 없습니다(MODEL-5).
 
    ```jsonc

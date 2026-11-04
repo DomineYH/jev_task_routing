@@ -19,7 +19,7 @@ HARNESS=""
 PING=0
 AUTH_CHECK=1
 DEST=".routing"
-POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py migrate_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json hooks/jev_order9_guard.py hooks/hooks.example.json)
+POLICY_FILES=(jev_task_routing.json jev_task_routing.schema.json models.json models.schema.json resolve_models.py migrate_models.py ROUTING_POLICY.md verify_routing.py AGENTS_ROUTING.md repo_checks.example.json repo_checks.schema.json hooks/jev_order9_guard.py hooks/hooks.example.json)
 HOOK_SCOPE="user"
 HOOK_SCOPE_SET=0
 UNINSTALL_HOOKS=0
@@ -158,7 +158,7 @@ printf '%s    source revision: %s%s\n' "$c_dim" "$SRC_COMMIT" "$c_off"
 # ---------------------------------------------------------------- 3. install
 info "3/6 Installing into $DEST/"
 mkdir -p "$DEST/tasks"
-for f in jev_task_routing.json jev_task_routing.schema.json models.schema.json resolve_models.py migrate_models.py ROUTING_POLICY.md verify_routing.py repo_checks.example.json; do
+for f in jev_task_routing.json jev_task_routing.schema.json models.schema.json resolve_models.py migrate_models.py ROUTING_POLICY.md verify_routing.py repo_checks.example.json repo_checks.schema.json; do
   if [[ -f "$DEST/$f" ]] && ! cmp -s "$SRC/$f" "$DEST/$f"; then
     cp "$DEST/$f" "$DEST/$f.bak"; warn "updated $DEST/$f (previous copy saved as $f.bak)"
   fi
