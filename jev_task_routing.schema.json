@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schemas/jev_task_routing.schema.json",
   "title": "Jev task routing policy configuration",
-  "description": "Schema for jev_task_routing.json (v2.5.6-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
+  "description": "Schema for jev_task_routing.json (v2.5.7-draft) and the runtime objects it defines. Model settings live in models.json (models.schema.json); the policy only references them.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -1794,6 +1794,7 @@
         "purpose",
         "select",
         "non_override",
+        "render",
         "catalog"
       ],
       "properties": {
@@ -1827,6 +1828,10 @@
         "non_override": {
           "type": "string"
         },
+        "render": {
+          "type": "string",
+          "minLength": 1
+        },
         "catalog": {
           "type": "object",
           "minProperties": 1,
@@ -1836,29 +1841,14 @@
           "additionalProperties": {
             "type": "object",
             "required": [
-              "steps",
-              "report_evidence"
+              "path"
             ],
             "additionalProperties": false,
             "properties": {
-              "steps": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 6,
-                "items": {
-                  "type": "string",
-                  "maxLength": 260
-                }
-              },
-              "report_evidence": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "string"
-                }
-              },
-              "rule_refs": {
-                "$ref": "#/$defs/ruleRefs"
+              "path": {
+                "type": "string",
+                "pattern": "^playbooks/[a-z][a-z0-9_]*\\.md$",
+                "description": "Relative to the directory holding this config (.routing/ when installed). The file is the only source of the playbook's steps, report evidence and notes (QUAL-1)."
               }
             }
           }
@@ -1867,7 +1857,7 @@
           "$ref": "#/$defs/ruleRefs"
         }
       },
-      "description": "Ordered steps rendered into implementation orders and the evidence their reports must contain (QUAL-1). Keep steps short: they are sent to workers verbatim."
+      "description": "Selects a playbook and names its file (QUAL-1). Steps, report evidence and notes live in playbooks/<id>.md; verify_routing.py checks the files."
     }
   },
   "$defs": {
@@ -3118,6 +3108,14 @@
             "null"
           ],
           "description": "Selected playbooks.catalog key, or null when playbooks.select names none (QUAL-1). Optional for records written before v2.5.6."
+        },
+        "playbook_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha256 of the playbook file the host rendered into the order (QUAL-1). Optional for records written before v2.5.7."
         },
         "design_note": {
           "type": [

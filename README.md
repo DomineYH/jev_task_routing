@@ -18,6 +18,7 @@
 | `repo_checks.example.json` / `repo_checks.schema.json` | 저장소 필수 CI·명령을 적는 템플릿과 그 스키마 — 하네스가 채울 수 있도록 README에 프롬프트 제공 |
 | `verify_routing.py` | 설치 검증 스크립트 |
 | `init_routing.sh` | 설치 스크립트 (아래) |
+| `playbooks/` | **playbook의 유일한 출처** — 작업 유형별 단계·보고 증거·호스트 노트(Markdown + frontmatter). JSON에는 선택 규칙과 id → 경로만 있음. 형식은 `playbooks/README.md`, 저작권 고지는 `playbooks/NOTICE.md` |
 | `build_config.py` | `jev_task_routing.json` 생성기. v2.4.0 원본 JSON을 입력으로 받으며 그 원본은 저장소에 없음. 프로젝트에는 설치되지 않음 |
 
 ## 설치
@@ -41,7 +42,7 @@ bash /tmp/jtr/init_routing.sh
 1. **의존성 확인** — `git`, `python3 ≥ 3.8`
 2. **git 저장소·인증 확인** — 현재 폴더가 git 저장소가 아니면 `git init` 안내 후 종료(exit 2). 원격에 접근할 수 없으면 `gh auth login` / `gh auth setup-git` 또는 credential helper·SSH 설정을 안내 후 종료(exit 3)
 3. **다운로드** — 저장소를 임시 폴더에 얕게 복제
-4. **설치** — `.routing/` 아래에 정책·스키마·`models.json`(**없을 때만** 생성, 있으면 유지하고 `models.example.json`만 갱신) + `verify_routing.py`·`resolve_models.py` + `repo_checks.json`(없을 때만 예시로 생성) + `tasks/`·`evidence/` 생성, `.gitignore`에 `.routing/tasks/*.json`·`.routing/evidence/*.json` 추가, 구버전 `jev_task_routing_v*.json`은 `.bak`으로 이름 변경, `INSTALLED.json`에 버전·원본 커밋 기록. 기존 파일과 내용이 다르면 `.bak`으로 백업 후 교체
+4. **설치** — `.routing/` 아래에 정책·스키마·`models.json`(**없을 때만** 생성, 있으면 유지하고 `models.example.json`만 갱신) + `playbooks/`(파일별 sha256을 `INSTALLED.json`에 기록) + `verify_routing.py`·`resolve_models.py` + `repo_checks.json`(없을 때만 예시로 생성) + `tasks/`·`evidence/` 생성, `.gitignore`에 `.routing/tasks/*.json`·`.routing/evidence/*.json` 추가, 구버전 `jev_task_routing_v*.json`은 `.bak`으로 이름 변경, `INSTALLED.json`에 버전·원본 커밋 기록. 기존 파일과 내용이 다르면 `.bak`으로 백업 후 교체
 5. **에이전트 지시 블록 삽입** — 하네스를 감지해 `CLAUDE.md`(Claude Code) 또는 `AGENTS.md`(codex·agy·opencode 등)에 `AGENTS_ROUTING.md` 내용을 추가. 파일이 없으면 생성, 있으면 끝에 추가. 마커(`<!-- jev-routing:start/end -->`) 사이만 관리하므로 **재실행해도 중복되지 않고 갱신**됩니다
 6. **검증** — `verify_routing.py` 실행(아래 참조)
 
@@ -77,7 +78,7 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 | schema | 정책이 JSON Schema를 통과 | FAIL |
 | models | `models.json`이 스키마 통과, 정책의 모든 역할이 harness/model/effort를 해석할 수 있음, `active_profile` 존재, 어댑터 허용 effort 위반 없음 (MODEL-1/3/5) | FAIL |
 | repo_checks | `repo_checks.json`이 `repo_checks.schema.json`을 통과, `required_ci`마다 `commands` 존재, 미편집·unknowns 경고 | FAIL/WARN |
-| cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher·advisor 트리거 비어 있지 않음, playbook 선택 대상과 QUAL 규칙 참조 유효, Jev 예산 | FAIL |
+| cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher·advisor 트리거 비어 있지 않음, playbook 선택 대상과 QUAL 규칙 참조 유효, playbook 파일 형식(frontmatter·id·단계 수와 길이·규칙 ID), Jev 예산 | FAIL |
 | agent instructions | CLAUDE.md 또는 AGENTS.md에 라우팅 블록 존재 | FAIL |
 | ORDER-9 guard hook | Claude Code 프로젝트면 user/project/local 중 한 곳에 훅 등록 여부, `hooks.json` mode 유효성 | WARN/FAIL |
 | task records | 기록된 과제마다 발동한 inspector/researcher 트리거(EVID-7)와 advisor 트리거(ROLE-9)에 지시서 또는 skip 기록이 있는지. `.routing/evidence/`의 검토 보고서에 증명 없는 차단 지적이 있는지(QUAL-9). advisor 사용 현황 한 줄 요약 | FAIL/WARN |
@@ -232,7 +233,7 @@ bash init_routing.sh --uninstall-hooks # 세 스코프에서 모두 제거
 3. **조사 지시서** — `evidence_orders.inspector_triggers`(INS-1..7)·`researcher_triggers`(RES-1..5)를 패킷에 대조. 하나라도 참이면 **Jev 호출 전에** inspector/researcher 지시서를 발행하고 결과를 패킷에 병합. 발행하지 않으면 `skip_reason`을 반드시 기록 — 조용히 건너뛰면 검증에서 FAIL (EVID-6, EVID-7). 조사 지시서는 Jev 예산을 쓰지 않음
 4. **Jev 호출** — 14문항 한 번에 (CLS-1). 과제 리비전당 최대 5회(초기 1회 + 증거가 바뀐 뒤 재평가 4회)
 5. **결정 규칙 적용** — `decision.rules`를 순서대로; 결과는 READY_FOR_PREFLIGHT / NEEDS_CONTEXT / NEEDS_DECOMPOSITION / NOT_APPLICABLE / BLOCKED. NEEDS_CONTEXT가 저장소 사실을 요구하면 INS-6, 외부 사실이면 RES-5가 다시 발동
-6. **playbook과 design_note** — `playbooks.select`에서 작업 유형에 맞는 playbook을 고르고(QUAL-1), standard/high 딜리버리면 로직보다 먼저 데이터 형태·상태 소유자·경계를 `design_note`에 적음. 모듈 경계를 넘으면 후보 형태를 둘 이상 비교(QUAL-2)
+6. **playbook과 design_note** — `playbooks.select`에서 작업 유형에 맞는 playbook을 고르고 `.routing/playbooks/<id>.md`를 읽어 해시를 기록하고(QUAL-1), standard/high 딜리버리면 로직보다 먼저 데이터 형태·상태 소유자·경계를 `design_note`에 적음. 모듈 경계를 넘으면 후보 형태를 둘 이상 비교(QUAL-2)
 7. **verification_plan** — 체크 패밀리 단위로 task_record에 기록 (VER-5)
 8. **advisor 트리거 평가** — `consultation_orders.advisor_triggers`(ADV-1..5)를 계획 직후·검토 판정 직후·수리 지시서 발행 전에 대조. 참이면 `decision_question`을 적은 자문 지시서를 발행하거나 skip 사유를 기록(ROLE-9). 값싼 검사로 가를 수 있으면 실행해서 가르는 쪽이 우선
 9. **작업 지시서 발행** — 역할별, 스키마 검증 통과한 것만 (ORDER-1). 구현 지시서에는 playbook 단계와 `design_note`가 들어감. 섀도 모드에서는 여기서 멈춤
@@ -274,6 +275,8 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 ## 코드 품질과 playbook (QUAL)
 
 정책 13절(QUAL-1..11)은 지시서 **안에서** 코드를 어떻게 쓰고 검토하는지를 정합니다. 스테이지·역할·Jev 문항은 늘지 않고, 구현 지시서의 내용과 보고서 형식, 검토 기준만 바뀝니다. [pstack](https://github.com/cursor/plugins/tree/main/pstack)(MIT)의 playbook과 원칙 스킬을 하네스 중립으로 옮긴 것이라 워커에 스킬을 설치할 필요가 없습니다 — 호스트가 단계를 지시서에 넣어 보냅니다.
+
+playbook 본문은 [`playbooks/<id>.md`](playbooks/)에만 있습니다(v2.5.7부터). 호스트는 그 파일의 `## Steps`를 그대로, frontmatter의 `report_evidence`를 목록으로 지시서에 넣고, `## Notes`는 지시서를 쓸 때만 참고합니다. playbook을 고치려면 그 파일만 고치면 됩니다 — JSON과 `build_config.py`는 새 playbook을 추가할 때만 건드립니다.
 
 | playbook | 선택 조건 | 핵심 순서 |
 |---|---|---|
@@ -347,6 +350,8 @@ python3 .routing/migrate_models.py .routing/models.json .routing/models.example.
 bash /tmp/jtr/init_routing.sh --ref v2.5.0
 ```
 
+v2.5.6 → v2.5.7: `init_routing.sh`를 다시 실행하면 `.routing/playbooks/`가 생기고 `INSTALLED.json`에 해시가 기록됩니다. `task_record.playbook_sha256`은 선택 항목이라 기존 기록은 그대로 통과합니다. 설치 명령과 `models.json` 형식은 바뀌지 않았습니다.
+
 v2.5.5 → v2.5.6: 새 task_record 필드(`playbook_id`, `design_note`, `consultations_evaluated`)는 선택 항목이라 기존 기록은 그대로 검증을 통과합니다. 설치 명령과 `models.json` 형식은 바뀌지 않았습니다.
 
 ## 문제 해결
@@ -373,6 +378,7 @@ v2.5.5 → v2.5.6: 새 task_record 필드(`playbook_id`, `design_note`, `consult
 
 ## 버전
 
+- **2.5.7-draft** — playbook을 파일로 분리: `playbooks/<id>.md`(Markdown + frontmatter)가 단계·보고 증거·노트의 유일한 출처가 되고, `playbooks.catalog`는 id → 경로만 남김. 설치 시 `.routing/playbooks/`로 복사·해시 기록, `verify_routing`이 파일 형식과 규칙 ID를 검사, `task_record.playbook_sha256` 추가. 유형별 참고 문서 9개를 지우고 새 검사 항목 5개는 `modifiers`로 옮김. 단계 문장·선택 규칙·스테이지·역할·Jev 문항은 변경 없음.
 - **2.5.6-draft** — ① advisor가 전혀 호출되지 않던 문제 수정: 긍정 발동 트리거(ADV-1..5), 평가 시점, 지시서 기본값·출력 계약, skip 기록 의무, `task_record.consultations_evaluated`, `needs_specialist`를 트리거로 승격(ROLE-8, ROLE-9, ORDER-10). ② 코드 품질 절 신설(QUAL-1..11): 작업 유형별 playbook, design_note, 최소 diff, 검증 가능한 단위, 근본 원인, 동작 기준 테스트, 실제 산출물 증명, diff 정리, 증명 있는 검토 지적, 보고서·PR 형식. `templates.worker_report`·`templates.review_report` 추가. 스테이지·역할·임계값·Jev 문항은 변경 없음.
 - **2.5.5-draft (+hooks)** — Claude Code PreToolUse 훅 `hooks/jev_order9_guard.py` 추가: Agent/Task 서브에이전트로 위임 역할을 돌리는 호출을 차단. `init_routing.sh --hooks user|project|local|none`(기본 user), `--uninstall-hooks`.
 - **2.5.5-draft** — 실행 채널 고정(ORDER-9): 모든 위임 역할은 하네스를 불문하고 Herdr pane으로 실행, 호스트의 Agent/서브에이전트 도구는 역할 실행 채널이 아님. `work_order`에 `launch_channel`·`pane_id`, `models.json` 어댑터에 `launch_channels`와 `claude` 항목 추가. 옵션 B(읽기 전용 역할의 제한 서브에이전트)는 전제 조건과 함께 비활성으로 문서화.

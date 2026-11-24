@@ -1,4 +1,4 @@
-# Jev Task Routing Policy — v2.5.6-draft
+# Jev Task Routing Policy — v2.5.7-draft
 
 Normative companion to `jev_task_routing.json` and `models.json`. The policy JSON holds every machine-readable value except model settings (thresholds, stage lists, templates, the Jev question rubric); `models.json` holds harness/model/effort for every delegated role, the router connection, profiles and adapter capabilities. This document holds the rules, each stated **once** under a stable ID. JSON fields named `rule_refs` point here. When the two disagree, the JSON value wins for numbers and enums; this document wins for behavior.
 
@@ -216,9 +216,9 @@ These are preconditions for using any rule above in automation. None is satisfie
 
 ## 13. Code quality (QUAL)
 
-How code is written and reviewed inside an order. Values and step lists live in `code_quality` and `playbooks`. These rules add no stage, role or Jev call; they change what an implementation order asks for, what its report contains and what a review checks. Adapted from the pstack playbooks and principle skills (`sources.adapted_from`).
+How code is written and reviewed inside an order. Values live in `code_quality`; playbook selection lives in `playbooks` and each playbook's text in `playbooks/<id>.md`. These rules add no stage, role or Jev call; they change what an implementation order asks for, what its report contains and what a review checks. Adapted from the pstack playbooks and principle skills (`sources.adapted_from`).
 
-**QUAL-1 Playbook binding.** At `READY_FOR_PREFLIGHT` the host takes the first matching entry of `playbooks.select`, records `task_record.playbook_id`, and renders that playbook's steps and `report_evidence` into the implementation order (`playbook_ref`). A playbook orders the work and names the evidence the report must contain; it never selects or overrides the testing mode, workflow, roles or risk (VER-1, WF-1). Where a step and the accepted testing mode disagree on test order, the testing mode governs and the step's evidence (for example a reproduction) is still required. A step that says to delegate is carried out by the worker itself (AUTH-3).
+**QUAL-1 Playbook binding.** At `READY_FOR_PREFLIGHT` the host takes the first matching entry of `playbooks.select`, reads the file that `playbooks.catalog.<id>.path` names (`.routing/playbooks/<id>.md`, the only source of the playbook's steps, report evidence and notes), records `task_record.playbook_id` and `task_record.playbook_sha256` (the hash of the file it read), and renders the file's `## Steps` verbatim and its frontmatter `report_evidence` into the implementation order (`playbook_ref`). The file's `## Notes` guide the host in writing the order and are not sent. A missing or malformed file blocks the order; the host never reconstructs steps from memory. A playbook orders the work and names the evidence the report must contain; it never selects or overrides the testing mode, workflow, roles or risk (VER-1, WF-1). Where a step and the accepted testing mode disagree on test order, the testing mode governs and the step's evidence (for example a reproduction) is still required. A step that says to delegate is carried out by the worker itself (AUTH-3).
 
 **QUAL-2 Shape before logic.** When `code_quality.design_note.required_when` holds, the plan — the host's `brief_plan` or the planner proposal — carries a `design_note` written before any logic: the data shape (types, signatures, key structures), each piece of state and its single owner, and the boundary the change sits behind. A change that crosses a module or public-interface boundary lists at least two candidate shapes and why the others were rejected; pick the one where each piece of state has one owner, each task has one way to do it, and callers need to know least. A structure (state machine, typed model, table or registry) replaces scattered conditionals only when it deletes branches or invalid states; clear local code stays as it is. The note also records the decomposition: what must finish first, what can move independently, what mutable state is shared (SAFE-4), and why this split (WF-2).
 
@@ -243,6 +243,17 @@ How code is written and reviewed inside an order. Values and step lists live in 
 ---
 
 ## Appendix A — Changes from v2.4.0
+
+### v2.5.7-draft (2026-11-24) — playbooks as files
+
+Diagnosis: playbook steps and report evidence sat inside the generated `jev_task_routing.json`, so editing one playbook meant editing the generator and a 2,400-line config; a readable copy under `playbooks/` (PR #3) duplicated them with no check, and nine per-type notes there restated `modifiers` without reaching any order.
+
+1. `playbooks/<id>.md` (Markdown + frontmatter: `id`, `title`, `rule_refs`, `report_evidence`, `adapted_from`; sections `## Steps`, `## Notes`) is the only source of a playbook. `playbooks.catalog` keeps id → path; new `playbooks.render` states what is sent. Step text is unchanged from v2.5.6.
+2. QUAL-1: the host reads the file, sends `## Steps` verbatim and `report_evidence`, keeps `## Notes` host-side, records `task_record.playbook_sha256` (optional in the schema).
+3. `init_routing.sh` installs `playbooks/` into `.routing/playbooks/` and records each file's sha256 in `INSTALLED.json#/playbooks_sha256`.
+4. `verify_routing`: parses each catalog file (frontmatter keys and types, id = catalog key = file name, 1..6 numbered steps of at most 260 characters, non-empty `report_evidence`, every cited rule ID defined) and warns when an installed file differs from its install record.
+5. Per-type notes removed; their new checks moved to `modifiers` (ui_ux, database, api_integration, security, dependency_update), where MOD-1/MOD-2 already bind them.
+6. No stage, role, workflow, threshold, selection rule or Jev question changed.
 
 ### v2.5.6-draft (2026-11-24) — advisor actually dispatches; code quality
 
@@ -347,3 +358,4 @@ Unchanged: all 14 Jev questions and their criteria (byte-identical), all seven t
 | validation_policy | VAL-1..3, `validation` |
 | sources, reviews | `provenance`, `sources`, Appendix A |
 | — (new in 2.5.6) | QUAL-1..11, `code_quality`, `playbooks`, `templates.worker_report`, `templates.review_report` |
+| — (2.5.7) | `playbooks/<id>.md` (playbook text), `playbooks.render`, `task_record.playbook_sha256` |

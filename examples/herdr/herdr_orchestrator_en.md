@@ -17,7 +17,7 @@ This document covers only **how** workers are launched, waited on and wound down
 - What goes to a pane is a single work order: the required fields of `templates.work_order` (objective, acceptance criteria, input refs and version, read/write scope, allowed actions, constraints and local discretion, stop conditions, deliverable, report route), the relevant verification-plan entries and shared constraints only (ORDER-2). Never send the full policy, this document or the host prompt (ENF-7).
 - Evidence roles (inspector/researcher) use `evidence_orders.order_defaults`: read-only on the target repository, a single write path `.routing/evidence/<order_id>.json` (ORDER-7).
 - Advisor uses `consultation_orders.order_defaults`: one `decision_question`, the trigger ID(s) that fired (ADV-n), the options under consideration and evidence refs; its only write is the report path (ORDER-10). Launch it in a session other than the plan's author, on a different model when possible (ROLE-8).
-- An implementation order includes the steps and report evidence of its `playbook_ref` (`playbooks.catalog.<id>`) and the `design_note` (QUAL-1, QUAL-2). Paste the steps as they are; never send the full policy.
+- An implementation order includes the `## Steps` and `report_evidence` of `.routing/playbooks/<id>.md` for its `playbook_ref`, and the `design_note` (QUAL-1, QUAL-2). Paste the steps as they are; never send the file's `## Notes` or the full policy.
 - Never ask a worker to relay anything to another pane. All relaying is done by the host (AUTH-2).
 
 ## 4. Waiting and liveness (ORDER-8)
