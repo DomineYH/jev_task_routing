@@ -1,6 +1,6 @@
 # jev_task_routing
 
-멀티 에이전트 코딩 파이프라인용 **작업 라우팅·거버넌스 정책**입니다. 호스트 세션(코디네이터)이 Jev(TypeSafe 의미 분류기)로 작업을 분류하고, 리스크에 맞는 최소 워크플로를 고른 뒤, 범위가 제한된 작업 지시서로만 워커를 움직이게 합니다.
+멀티 에이전트 코딩 파이프라인용 **작업 라우팅·거버넌스 정책**입니다. 호스트 세션(코디네이터)이 Jev(TypeSafe 의미 분류기)로 작업을 분류하고, 리스크에 맞는 최소 워크플로를 고른 뒤, 범위가 제한된 작업 지시서로만 워커를 움직이게 합니다. v2.5.6부터는 지시서 안에서 코드를 어떻게 쓰고 검토할지(작업 유형별 playbook, 보고서 계약)와 advisor 자문을 언제 붙일지도 정합니다.
 
 > 이 저장소는 **정책**입니다. 그 자체로는 아무것도 실행하거나 강제하지 않습니다. 실제 강제는 호스트 실행기가 구현해야 하며(ROUTING_POLICY.md §11 ENF), 그 전까지는 섀도 모드로만 운용합니다.
 
@@ -12,12 +12,13 @@
 | `models.json` | **모델 설정의 유일한 위치** — 역할별 harness/model/effort, 기본값, 프로필(`standard`, `high_assurance`), 라우터(Jev) 연결 정보, 어댑터별 허용 effort |
 | `models.schema.json` | `models.json`의 JSON Schema |
 | `resolve_models.py` | 역할별 최종 harness/model/effort와 그 출처(오버라이드/프로필/역할/기본값)를 출력하고 어댑터 preflight 수행 |
-| `jev_task_routing.schema.json` | 설정 파일과 런타임 객체(request, evidence_packet, work_order, worker_question, task_record)의 JSON Schema |
-| `ROUTING_POLICY.md` | 규칙 ID(AUTH·MODEL·ROLE·ORDER·Q·EVID·CLS·WF·MOD·VER·SAFE·ENF·VAL) 단일 출처 문서. JSON의 `rule_refs`가 여기를 가리킴 |
+| `jev_task_routing.schema.json` | 설정 파일과 런타임 객체(request, evidence_packet, work_order, worker_question, task_record, worker_report, review_report, consultation record)의 JSON Schema |
+| `ROUTING_POLICY.md` | 규칙 ID(AUTH·MODEL·ROLE·ORDER·Q·EVID·CLS·WF·MOD·VER·SAFE·ENF·VAL·QUAL) 단일 출처 문서. JSON의 `rule_refs`가 여기를 가리킴 |
 | `AGENTS_ROUTING.md` | 프로젝트의 CLAUDE.md / AGENTS.md에 삽입되는 호스트 지시 블록 |
 | `repo_checks.example.json` / `repo_checks.schema.json` | 저장소 필수 CI·명령을 적는 템플릿과 그 스키마 — 하네스가 채울 수 있도록 README에 프롬프트 제공 |
 | `verify_routing.py` | 설치 검증 스크립트 |
 | `init_routing.sh` | 설치 스크립트 (아래) |
+| `build_config.py` | `jev_task_routing.json` 생성기. v2.4.0 원본 JSON을 입력으로 받으며 그 원본은 저장소에 없음. 프로젝트에는 설치되지 않음 |
 
 ## 설치
 
@@ -208,6 +209,8 @@ bash init_routing.sh --uninstall-hooks # 세 스코프에서 모두 제거
    }
    ```
 
+   **advisor는 planner·호스트와 다른 계열 모델로 지정하세요.** 기본값은 advisor와 planner가 같은 모델이라, planner 계획에 대한 자문이 두 번째 의견이 되지 못합니다(ROLE-8). 같으면 검증기가 경고합니다.
+
    우선순위(MODEL-1): 요청의 `prompt_overrides` → `profiles[active_profile]` → `roles` → `default` → 런타임 기본값. 각 필드(harness/model/effort)는 독립적으로 해석됩니다. 결과 확인:
 
    ```bash
@@ -243,7 +246,9 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 - 패킷: `change_kind=change_behavior`, `spec_status=precise_enough`("abc1234는 거부, abcd1234는 허용"), `test_seam.status=ready`
 - 호스트가 `validators/password.js`를 읽고 `security_sensitive: true` attest
 - CLS-2 즉시 발동 → **risk=high**. Jev `testing_mode=test_first` → VER-3 가드 통과
-- 워크플로 `high`: planner(짧은 계획) → implementer(red→fix→green) → task-verifier(독립 검토) → `security` modifier로 부정 케이스·회귀 테스트 필수
+- 워크플로 `high`: planner(짧은 계획 + `design_note`) → implementer(red→fix→green) → task-verifier(독립 검토) → `security` modifier로 부정 케이스·회귀 테스트 필수
+- Jev `task_type=bug_fix` → `playbook_id=bug_fix`: 7자 비밀번호가 통과하는 것을 먼저 재현 → 원인 좁히기 → 근본 원인에서 최소 수정 → 같은 재현이 이제 실패하는지 확인. 보고서에 실패→통과 출력을 그대로 첨부
+- 비가역 결정이 없으므로 ADV-4는 발동하지 않음. 수리 후에도 같은 검사가 다시 실패하면 그때 ADV-1이 발동
 
 ### 예시: "결제 웹훅 재시도 로직 수정" (researcher 발동)
 
@@ -256,6 +261,15 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 
 - `change_kind=nonbehavioral`, 호스트가 diff 확인 후 `minor_scope_verified: true`
 - 리스크 4종 ≤ 0.1, `minor_eligible ≥ 0.95` → **minor**, implementer 하나, `checks_only`
+- `task_type=docs`는 playbook이 없고(`playbook_id=null`), minor라 QUAL-3·7·8만 적용 — `design_note`도 advisor 평가 부담도 없음
+
+### 예시: "주문 조회에 캐시 추가" (advisor 발동)
+
+- Jev `task_type=feature`, 리스크 standard → `playbook_id=feature`, 호스트가 `brief_plan`에서 `design_note` 작성
+- 캐시를 주문 모듈 안에 둘지, 공용 캐시 계층을 새로 만들지 — 모듈 경계를 넘는 후보가 둘이고 가를 증거가 없음 → **ADV-3 발동**
+- 값싼 검사로 가를 수 있으면 그쪽이 우선: 예를 들어 호출자 수를 세어 한쪽이 명백해지면 `skip_reason=settled_by_discriminating_check`와 결과 참조를 기록
+- 가를 수 없으면 자문 지시서 발행: `decision_question="주문 조회 캐시를 모듈 내부에 둘 것인가, 공용 계층으로 뺄 것인가"`, `write_scope=[".routing/evidence/RM-072-adv-1.json"]`
+- advisor가 권고·가정·위험·"권고가 틀렸음을 보일 가장 작은 검사"를 돌려줌 → 호스트가 결정을 `coordinator_decisions`에 기록한 뒤 지시서를 개정. 조언을 implementer에게 그대로 전달하지 않음(ORDER-10)
 
 ## 코드 품질과 playbook (QUAL)
 
@@ -268,6 +282,16 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 | `refactor` | task_type=refactor | 동작 고정(pin) → 목표 형태 → 먼저 빼기 → pin을 유지하는 작은 이동 → 동등성 증명 |
 | `performance` | task_type=performance | 기준선 측정 → 측정된 원인 → 가장 싼 처방부터 → 같은 하네스로 재측정 |
 | `investigation` / `prototype` | exploration | 읽기 전용 답변 / 버리는 코드로 결정만 산출 |
+
+**Jev와의 연결은 한 방향입니다.** Jev의 `task_type`·`work_mode`가 playbook을 고르고, 결정 규칙이 낸 리스크가 적용할 QUAL 규칙 범위를 정합니다. playbook은 분류·리스크·`testing_mode`를 바꾸지 못하며, 테스트 순서가 충돌하면 `testing_mode`를 따릅니다(QUAL-1). 그래서 Jev가 작업 유형을 잘못 분류하면 playbook도 잘못 붙습니다 — 섀도 모드 교정에서 함께 확인하세요.
+
+| 보고서 | 작성자 | 핵심 요건 |
+|---|---|---|
+| `templates.worker_report` | implementer | 목표 재진술, 단위별 검사와 결과 참조, 검증한 표면, 자체 diff 점검. 주장마다 증거 참조 또는 measured/inferred/guess 라벨 (QUAL-10) |
+| `templates.review_report` | task-verifier | 차단 지적은 실행 결과·실패한 검사·`file:line` 중 하나의 증명 필수. FAIL은 차단 지적이 하나 이상 있어야 함 (QUAL-9) |
+| consultation record | advisor | 권고 또는 `insufficient_evidence`, 가정, 위험, 권고를 반증할 가장 작은 검사 (ROLE-8) |
+
+검토·자문 보고서는 `.routing/evidence/<order_id>.json`에 쓰며, 이 경로가 해당 역할의 유일한 쓰기 범위입니다(ORDER-10).
 
 리스크별 적용 범위는 `code_quality.applies`에 있습니다. minor는 QUAL-3(최소 diff)·QUAL-7(실제 산출물로 증명)·QUAL-8(diff 정리)만 적용되어 가볍게 유지됩니다.
 
@@ -283,6 +307,8 @@ pstack에서 일부러 가져오지 않은 것: 후보 병렬 실행(`arena`)과
 - minor로 잘못 허용된 건 → 0이어야 함
 - NEEDS_CONTEXT / BLOCKED 비율, 2회차 재호출 비율 → 높으면 `risk_clear_max`(0.1) 상향 검토
 - 한국어 요청의 정규화 손실(부정문·식별자)
+- `task_type` 오분류 → playbook이 그대로 따라가므로 함께 라벨링
+- advisor 트리거: `verify_routing.py`가 출력하는 사용 현황으로 호스트가 평가를 기록하는지 확인. 섀도 모드에서는 워커가 뜨지 않아 ADV-1(수리 재실패)·ADV-2(검토 지적 이견)는 발동할 수 없고, ADV-3·4·5만 관찰됨
 
 임계값은 개발 세트로 튜닝하고 별도 holdout으로 보고합니다(VAL-1, VAL-3).
 
@@ -290,7 +316,7 @@ pstack에서 일부러 가져오지 않은 것: 후보 병렬 실행(`arena`)과
 
 - [ ] 작업 지시서가 스키마 검증을 통과해야만 워커 실행 (ORDER-1)
 - [ ] 워커 실행 명령이 호스트 세션에서만 나감 — 워커 세션에는 spawn 권한 없음 (ENF-2)
-- [ ] task-verifier·advisor·inspector는 read-only 워크트리에서 실행 (ENF-4)
+- [ ] task-verifier·advisor·inspector는 대상 저장소 read-only로 실행하고, 쓰기는 지시서에 적힌 보고서 경로 하나만 허용 (ENF-4, ORDER-10)
 - [ ] 워커에게는 지시서+관련 plan 항목만 전달, 호스트 프롬프트 전체·키 전달 금지 (ENF-7)
 - [ ] 예산 카운터(Jev 5회, 자동 수리 2회)가 task_record에서 실제로 증가·차단 (CLS-11, VER-11)
 
@@ -315,9 +341,13 @@ pstack에서 일부러 가져오지 않은 것: 후보 병렬 실행(`arena`)과
 python3 .routing/migrate_models.py .routing/models.json .routing/models.example.json --dry-run
 ```
 
+특정 브랜치나 태그로 고정해 설치하려면:
+
 ```bash
 bash /tmp/jtr/init_routing.sh --ref v2.5.0
 ```
+
+v2.5.5 → v2.5.6: 새 task_record 필드(`playbook_id`, `design_note`, `consultations_evaluated`)는 선택 항목이라 기존 기록은 그대로 검증을 통과합니다. 설치 명령과 `models.json` 형식은 바뀌지 않았습니다.
 
 ## 문제 해결
 
@@ -328,6 +358,8 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 | `[WARN] 'jsonschema' not installed` | `pip install jsonschema` 후 `python3 .routing/verify_routing.py` |
 | `[FAIL] routing block ... not found` | `bash init_routing.sh --harness claude` 또는 `--harness agents`로 재삽입 |
 | `[FAIL] ... triggers fired but no evidence order issued and no skip record` | 호스트가 inspector/researcher를 조용히 건너뜀. 해당 task_record의 `evidence_orders_evaluated`에 `issued` 또는 `skipped`를 채우고, AGENTS/CLAUDE.md 블록이 최신인지 확인 |
+| `[FAIL] ... advisor triggers ... fired but no consultation order issued and no skip record` | 호스트가 발동한 advisor 트리거를 조용히 건너뜀(ROLE-9). 해당 task_record의 `consultations_evaluated`에 `issued` 또는 `skipped`(허용된 `skip_reason` 포함)를 채움 |
+| `[FAIL] evidence/...: review report violates its contract` | 검토 보고서에 증명 없는 차단 지적이 있거나, FAIL인데 차단 지적이 없음(QUAL-9). 검토자에게 증명을 붙이게 하거나 해당 지적을 비차단으로 내림 |
 | advisor가 전혀 호출되지 않음 | `python3 .routing/verify_routing.py`의 task records 단계가 advisor 사용 현황을 출력함. `consultations_evaluated`가 있는 기록이 0건이면 호스트가 트리거를 평가하지 않는 것 — AGENTS/CLAUDE.md 블록이 v2.5.6 이상인지 확인. 평가는 하는데 발동이 0건이면 `design_note.candidates`와 `repair_cycles`가 실제로 기록되는지 확인 |
 | advisor와 planner가 같은 모델이라는 경고 | 같은 모델의 자문은 두 번째 의견이 아님(ROLE-8). `models.json`에서 advisor를 planner·호스트와 다른 계열 모델로 지정 |
 | inspector/researcher가 전혀 호출되지 않음 | task_record의 `evidence_orders_evaluated.inspector_triggers`가 비어 있는지 확인. 비어 있으면 호스트가 트리거를 평가하지 않은 것 — `unknowns`에 `repo:`/`external:` 접두어를 쓰는지, `external_contracts.status`를 채우는지 확인 |
