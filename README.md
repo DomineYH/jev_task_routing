@@ -18,6 +18,7 @@
 | `repo_checks.example.json` / `repo_checks.schema.json` | 저장소 필수 CI·명령을 적는 템플릿과 그 스키마 — 하네스가 채울 수 있도록 README에 프롬프트 제공 |
 | `verify_routing.py` | 설치 검증 스크립트 |
 | `init_routing.sh` | 설치 스크립트 (아래) |
+| `playbooks/` | `playbooks.catalog`의 읽기용 문서와 작업 유형 참고. 규범적 출처는 JSON이며, `playbook_id`는 catalog 키이다. 저작권 고지는 `playbooks/NOTICE.md` |
 | `build_config.py` | `jev_task_routing.json` 생성기. v2.4.0 원본 JSON을 입력으로 받으며 그 원본은 저장소에 없음. 프로젝트에는 설치되지 않음 |
 
 ## 설치
@@ -274,6 +275,8 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 ## 코드 품질과 playbook (QUAL)
 
 정책 13절(QUAL-1..11)은 지시서 **안에서** 코드를 어떻게 쓰고 검토하는지를 정합니다. 스테이지·역할·Jev 문항은 늘지 않고, 구현 지시서의 내용과 보고서 형식, 검토 기준만 바뀝니다. [pstack](https://github.com/cursor/plugins/tree/main/pstack)(MIT)의 playbook과 원칙 스킬을 하네스 중립으로 옮긴 것이라 워커에 스킬을 설치할 필요가 없습니다 — 호스트가 단계를 지시서에 넣어 보냅니다.
+
+사람이 읽기 쉬운 단계 문장은 [`playbooks/`](playbooks/)에 있습니다. catalog 항목과 어긋나면 `jev_task_routing.json`의 `playbooks`가 이깁니다.
 
 | playbook | 선택 조건 | 핵심 순서 |
 |---|---|---|
