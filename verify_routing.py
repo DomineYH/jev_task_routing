@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-RULE_PAT = r"(?:AUTH|MODEL|ROLE|ORDER|Q|EVID|CLS|WF|MOD|VER|SAFE|ENF|VAL)-\d+[a-z]?"
+RULE_PAT = r"(?:AUTH|MODEL|ROLE|ORDER|Q|EVID|CLS|WF|MOD|VER|SAFE|ENF|VAL|QUAL)-\d+[a-z]?"
 MARK_START = "<!-- jev-routing:start"
 MARK_END = "<!-- jev-routing:end -->"
 
@@ -175,6 +175,22 @@ def check_models(routing, cfg, rep):
         rep.warning(f"harnesses used by roles without an adapters entry (launch channel unconstrained): {missing_ad}")
     else:
         rep.ok("every role harness has an adapters entry with launch_channels=[herdr_pane]")
+    # advisor independence (ROLE-8): a consultation on the same model as the plan's author is not a second opinion
+    def _resolved(rid):
+        out = {}
+        for f in ("harness", "model"):
+            for layer in (prof_roles.get(rid, {}), models.get("roles", {}).get(rid, {}), models.get("default", {})):
+                if layer.get(f):
+                    out[f] = layer[f]
+                    break
+        return out
+    if "advisor" in cfg.get("roles", {}):
+        adv = _resolved("advisor")
+        same = [r for r in ("planner", "implementer") if r in cfg.get("roles", {}) and adv and _resolved(r) == adv]
+        if same:
+            rep.warning(f"advisor resolves to the same harness/model as {same} ({adv.get('harness')}/{adv.get('model')}): a consultation on their work is not a second opinion (ROLE-8) — give advisor a different model in models.json")
+        else:
+            rep.ok("advisor resolves to a different harness/model than planner and implementer (ROLE-8)")
     router = models.get("router", {})
     if router.get("model"):
         rep.ok(f"router: {router.get('provider')} {router.get('model')} via {router.get('api_key_env')}")
@@ -225,6 +241,27 @@ def check_cross_refs(cfg, policy_md, rep):
         rep.error("evidence_orders must define non-empty inspector_triggers and researcher_triggers (EVID-6); without them these roles are never dispatched")
     else:
         rep.ok(f"evidence orders: {len(ins)} inspector triggers, {len(res)} researcher triggers, skip record {'required' if eo.get('skip_record', {}).get('required') else 'NOT required'}")
+    adv = cfg.get("consultation_orders", {}).get("advisor_triggers", [])
+    if "advisor" in cfg.get("roles", {}) and not adv:
+        rep.error("consultation_orders.advisor_triggers is empty (ROLE-9); without triggers the advisor role is never dispatched")
+    elif adv:
+        rep.ok(f"consultation orders: {len(adv)} advisor triggers, skip record {'required' if cfg['consultation_orders'].get('skip_record', {}).get('required') else 'NOT required'}")
+    pb = cfg.get("playbooks", {})
+    catalog = set(pb.get("catalog", {}))
+    selected = {e.get("playbook") for e in pb.get("select", []) if e.get("playbook")}
+    if selected - catalog:
+        rep.error(f"playbooks.select names playbooks missing from playbooks.catalog: {sorted(selected - catalog)} (QUAL-1)")
+    elif catalog:
+        unused_pb = catalog - selected
+        if unused_pb:
+            rep.warning(f"playbooks defined but never selected: {sorted(unused_pb)}")
+        rep.ok(f"playbooks: {len(catalog)} in catalog, every selection resolves")
+    qual_defined = set(re.findall(r"\*\*(QUAL-\d+)\b", policy_md))
+    qual_used = {q for qs_ in cfg.get("code_quality", {}).get("applies", {}).values() for q in qs_}
+    if qual_used - qual_defined:
+        rep.error(f"code_quality.applies references undefined rules: {sorted(qual_used - qual_defined)}")
+    elif qual_used:
+        rep.ok(f"code quality: {len(qual_defined)} QUAL rules defined; applies map resolves for {sorted(cfg['code_quality']['applies'])}")
     budget = cfg.get("decision", {}).get("budgets", {}).get("max_semantic_calls_per_task_revision")
     if budget is None or budget < 1:
         rep.error("decision.budgets.max_semantic_calls_per_task_revision missing")
@@ -268,6 +305,7 @@ def check_task_records(routing, rep, schema=None):
     if not recs:
         rep.ok("no task records yet (shadow mode not started)")
         return
+    adv_stats = {"records": 0, "evaluated": 0, "fired": 0, "issued": 0, "skipped": 0}  # records written under >= 2.5.6 only
     validator = None
     if schema and "taskRecord" in schema.get("$defs", {}):
         try:
@@ -307,6 +345,24 @@ def check_task_records(routing, rep, schema=None):
                 if order.get("order_id") and order.get("launch_channel") != "herdr_pane":
                     violations += 1
                     rep.error(f"{r.name}: order {label} launched via {order.get('launch_channel')!r}, not herdr_pane (ORDER-9)")
+            ce = t.get("consultations_evaluated")
+            pv = re.match(r"(\d+)\.(\d+)\.(\d+)", str(t.get("policy_version") or ""))
+            if ce is not None or (pv and tuple(map(int, pv.groups())) >= (2, 5, 6)):
+                adv_stats["records"] += 1
+            if isinstance(ce, dict):
+                adv_stats["evaluated"] += 1
+                c_fired = set(ce.get("advisor_triggers") or [])
+                c_issued = set(ce.get("issued") or [])
+                c_skipped = {tid for s_ in (ce.get("skipped") or []) if isinstance(s_, dict) for tid in (s_.get("trigger_ids") or [])}
+                adv_stats["fired"] += bool(c_fired)
+                adv_stats["issued"] += len(c_issued)
+                adv_stats["skipped"] += bool(c_skipped)
+                if c_fired and not (c_issued or c_fired <= c_skipped):
+                    violations += 1
+                    rep.error(f"{r.name}: advisor triggers {sorted(c_fired)} fired but no consultation order issued and no skip record (ROLE-9)")
+            elif ce is not None:
+                violations += 1
+                rep.error(f"{r.name}: consultations_evaluated must be an object")
             ev = t.get("evidence_orders_evaluated") or {}
             if not isinstance(ev, dict):
                 violations += 1
@@ -324,7 +380,49 @@ def check_task_records(routing, rep, schema=None):
             violations += 1
             rep.error(f"{r.name}: could not audit record ({type(e).__name__}: {e})")
     if not violations:
-        rep.ok(f"{len(recs)} task record(s): schema-conformant; every fired evidence trigger has an order or a skip record; all issued orders use herdr_pane")
+        rep.ok(f"{len(recs)} task record(s): schema-conformant; every fired evidence/advisor trigger has an order or a skip record; all issued orders use herdr_pane")
+    # advisor usage (ROLE-9): make "is the advisor ever used?" answerable from the records
+    a = adv_stats
+    line = f"advisor usage: {a['evaluated']}/{a['records']} record(s) written under v2.5.6+ evaluated triggers, {a['fired']} with a trigger fired, {a['issued']} consultation order(s) issued, {a['skipped']} with a recorded skip"
+    if a["records"] >= 5 and a["evaluated"] == 0:
+        rep.warning(line + " — the host is not evaluating consultation_orders.advisor_triggers; check that the CLAUDE.md/AGENTS.md block is v2.5.6 or later")
+    elif a["evaluated"] >= 10 and a["fired"] == 0:
+        rep.warning(line + " — no trigger has ever fired; check that design_note.candidates and repair_cycles are actually recorded")
+    else:
+        rep.ok(line)
+
+
+def check_reports(routing, rep, schema=None):
+    """QUAL-9 / ROLE-8: reports under .routing/evidence/ that look like a review or a consultation must match their contract."""
+    if not schema:
+        return
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError:
+        return
+    defs = schema.get("$defs", {})
+    kinds = (("review report", "reviewReport", lambda d: "verdict" in d and "findings" in d, "QUAL-9"),
+             ("consultation record", "consultationRecord", lambda d: "decision_question" in d and "recommendation" in d, "ROLE-8"))
+    counts = {k[0]: 0 for k in kinds}
+    bad = 0
+    for f in sorted((routing / "evidence").glob("*.json")):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        for label, key, match, rule in kinds:
+            if key in defs and match(d):
+                counts[label] += 1
+                errs = sorted(Draft202012Validator({"$ref": f"#/$defs/{key}", "$defs": defs}).iter_errors(d), key=lambda e: list(e.path))
+                if errs:
+                    bad += 1
+                    rep.error(f"evidence/{f.name}: {label} violates its contract ({rule}; {len(errs)} error(s))")
+                    for e in errs[:3]:
+                        print("         - /" + "/".join(map(str, e.path)) + ": " + e.message[:140])
+    if not bad:
+        rep.ok(f"reports in .routing/evidence/: {counts['review report']} review report(s), {counts['consultation record']} consultation record(s), all within contract")
 
 
 def check_agent_block(project, rep):
@@ -461,8 +559,9 @@ def main():
     check_cross_refs(cfg, policy_md, rep)
     print("[5/9] agent instructions")
     check_agent_block(project, rep)
-    print("[6/9] task records (EVID-7 / ORDER-9)")
+    print("[6/9] task records and reports (EVID-7 / ORDER-9 / ROLE-9 / QUAL-9)")
     check_task_records(routing, rep, schema)
+    check_reports(routing, rep, schema)
     print("[7/9] ORDER-9 guard hook")
     check_hook(project, routing, rep)
     print("[8/9] install record")

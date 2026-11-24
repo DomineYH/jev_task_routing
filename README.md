@@ -8,7 +8,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| `jev_task_routing.json` | 기계 판독용 정책(버전은 파일 안 `version`) — 임계값, 7개 역할의 권한·발동 조건, 워크플로·스테이지, Jev 14문항 루브릭, inspector/researcher 트리거, 템플릿. **모델 설정은 없음** |
+| `jev_task_routing.json` | 기계 판독용 정책(버전은 파일 안 `version`) — 임계값, 7개 역할의 권한·발동 조건, 워크플로·스테이지, Jev 14문항 루브릭, inspector/researcher 트리거, advisor 트리거(`consultation_orders`), 코드 품질 기준(`code_quality`)과 작업 유형별 playbook(`playbooks`), 템플릿. **모델 설정은 없음** |
 | `models.json` | **모델 설정의 유일한 위치** — 역할별 harness/model/effort, 기본값, 프로필(`standard`, `high_assurance`), 라우터(Jev) 연결 정보, 어댑터별 허용 effort |
 | `models.schema.json` | `models.json`의 JSON Schema |
 | `resolve_models.py` | 역할별 최종 harness/model/effort와 그 출처(오버라이드/프로필/역할/기본값)를 출력하고 어댑터 preflight 수행 |
@@ -76,10 +76,10 @@ python3 .routing/verify_routing.py --ping     # + Jev 엔드포인트 스모크 
 | schema | 정책이 JSON Schema를 통과 | FAIL |
 | models | `models.json`이 스키마 통과, 정책의 모든 역할이 harness/model/effort를 해석할 수 있음, `active_profile` 존재, 어댑터 허용 effort 위반 없음 (MODEL-1/3/5) | FAIL |
 | repo_checks | `repo_checks.json`이 `repo_checks.schema.json`을 통과, `required_ci`마다 `commands` 존재, 미편집·unknowns 경고 | FAIL/WARN |
-| cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher 트리거 비어 있지 않음, Jev 예산 | FAIL |
+| cross references | 워크플로→스테이지·역할 참조, Jev 14문항, JSON이 참조한 규칙 ID가 정책 문서에 정의됨, trusted flag마다 소비 규칙 존재, inspector/researcher·advisor 트리거 비어 있지 않음, playbook 선택 대상과 QUAL 규칙 참조 유효, Jev 예산 | FAIL |
 | agent instructions | CLAUDE.md 또는 AGENTS.md에 라우팅 블록 존재 | FAIL |
 | ORDER-9 guard hook | Claude Code 프로젝트면 user/project/local 중 한 곳에 훅 등록 여부, `hooks.json` mode 유효성 | WARN/FAIL |
-| task records | 기록된 과제마다 발동한 inspector/researcher 트리거에 지시서 또는 skip 기록이 있는지 (EVID-7) | FAIL |
+| task records | 기록된 과제마다 발동한 inspector/researcher 트리거(EVID-7)와 advisor 트리거(ROLE-9)에 지시서 또는 skip 기록이 있는지. `.routing/evidence/`의 검토 보고서에 증명 없는 차단 지적이 있는지(QUAL-9). advisor 사용 현황 한 줄 요약 | FAIL/WARN |
 | install record | INSTALLED.json 버전 = 설정 버전 | WARN |
 | environment | `TYPESAFE_API_KEY` 설정 여부 | WARN |
 | ping (옵션) | 엔드포인트 도달·인증 확인, `response.model`이 고정 버전과 같은지 | FAIL/WARN |
@@ -229,9 +229,12 @@ bash init_routing.sh --uninstall-hooks # 세 스코프에서 모두 제거
 3. **조사 지시서** — `evidence_orders.inspector_triggers`(INS-1..7)·`researcher_triggers`(RES-1..5)를 패킷에 대조. 하나라도 참이면 **Jev 호출 전에** inspector/researcher 지시서를 발행하고 결과를 패킷에 병합. 발행하지 않으면 `skip_reason`을 반드시 기록 — 조용히 건너뛰면 검증에서 FAIL (EVID-6, EVID-7). 조사 지시서는 Jev 예산을 쓰지 않음
 4. **Jev 호출** — 14문항 한 번에 (CLS-1). 과제 리비전당 최대 5회(초기 1회 + 증거가 바뀐 뒤 재평가 4회)
 5. **결정 규칙 적용** — `decision.rules`를 순서대로; 결과는 READY_FOR_PREFLIGHT / NEEDS_CONTEXT / NEEDS_DECOMPOSITION / NOT_APPLICABLE / BLOCKED. NEEDS_CONTEXT가 저장소 사실을 요구하면 INS-6, 외부 사실이면 RES-5가 다시 발동
-6. **verification_plan** — 체크 패밀리 단위로 task_record에 기록 (VER-5)
-7. **작업 지시서 발행** — 역할별, 스키마 검증 통과한 것만 (ORDER-1). 섀도 모드에서는 여기서 멈춤
-8. **completion_gate** — 증거 대조 후 호스트만 수락 (AUTH-5)
+6. **playbook과 design_note** — `playbooks.select`에서 작업 유형에 맞는 playbook을 고르고(QUAL-1), standard/high 딜리버리면 로직보다 먼저 데이터 형태·상태 소유자·경계를 `design_note`에 적음. 모듈 경계를 넘으면 후보 형태를 둘 이상 비교(QUAL-2)
+7. **verification_plan** — 체크 패밀리 단위로 task_record에 기록 (VER-5)
+8. **advisor 트리거 평가** — `consultation_orders.advisor_triggers`(ADV-1..5)를 계획 직후·검토 판정 직후·수리 지시서 발행 전에 대조. 참이면 `decision_question`을 적은 자문 지시서를 발행하거나 skip 사유를 기록(ROLE-9). 값싼 검사로 가를 수 있으면 실행해서 가르는 쪽이 우선
+9. **작업 지시서 발행** — 역할별, 스키마 검증 통과한 것만 (ORDER-1). 구현 지시서에는 playbook 단계와 `design_note`가 들어감. 섀도 모드에서는 여기서 멈춤
+10. **보고서 검사** — 구현자는 `templates.worker_report`, 검토자는 `templates.review_report`로 보고. 증거 없는 주장과 증명 없는 차단 지적은 받아들이지 않음(QUAL-9, QUAL-10)
+11. **completion_gate** — 증거 대조 후 호스트만 수락 (AUTH-5)
 
 task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.task_record`).
 
@@ -254,6 +257,22 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 - `change_kind=nonbehavioral`, 호스트가 diff 확인 후 `minor_scope_verified: true`
 - 리스크 4종 ≤ 0.1, `minor_eligible ≥ 0.95` → **minor**, implementer 하나, `checks_only`
 
+## 코드 품질과 playbook (QUAL)
+
+정책 13절(QUAL-1..11)은 지시서 **안에서** 코드를 어떻게 쓰고 검토하는지를 정합니다. 스테이지·역할·Jev 문항은 늘지 않고, 구현 지시서의 내용과 보고서 형식, 검토 기준만 바뀝니다. [pstack](https://github.com/cursor/plugins/tree/main/pstack)(MIT)의 playbook과 원칙 스킬을 하네스 중립으로 옮긴 것이라 워커에 스킬을 설치할 필요가 없습니다 — 호스트가 단계를 지시서에 넣어 보냅니다.
+
+| playbook | 선택 조건 | 핵심 순서 |
+|---|---|---|
+| `bug_fix` | task_type=bug_fix | 재현 → 소거법으로 원인 좁히기 → 근본 원인에서 최소 수정 → 같은 표면에서 원래 재현 통과 |
+| `feature` | feature·ui_ux·api_integration·database·security | 서브시스템 추적 → design_note대로 구현 → 검사로 끝나는 작은 단위 → 실제 표면에서 검증 |
+| `refactor` | task_type=refactor | 동작 고정(pin) → 목표 형태 → 먼저 빼기 → pin을 유지하는 작은 이동 → 동등성 증명 |
+| `performance` | task_type=performance | 기준선 측정 → 측정된 원인 → 가장 싼 처방부터 → 같은 하네스로 재측정 |
+| `investigation` / `prototype` | exploration | 읽기 전용 답변 / 버리는 코드로 결정만 산출 |
+
+리스크별 적용 범위는 `code_quality.applies`에 있습니다. minor는 QUAL-3(최소 diff)·QUAL-7(실제 산출물로 증명)·QUAL-8(diff 정리)만 적용되어 가볍게 유지됩니다.
+
+pstack에서 일부러 가져오지 않은 것: 후보 병렬 실행(`arena`)과 워커 내부 서브에이전트 분기(WF-2·AUTH-3·ORDER-9와 충돌), "사람에게 묻지 말고 진행" 자율성(AUTH-4와 충돌). 워커 pane에서 `/poteto-mode`를 그대로 돌리면 워커가 서브에이전트를 띄우므로 이 정책과 맞지 않습니다.
+
 ## 섀도 모드 → 실행 전환
 
 설치 직후 지시 블록에는 **SHADOW MODE: ON**이 들어 있습니다. 라우팅과 기록만 하고 워커를 띄우지 않습니다. 다음을 마친 뒤 사람이 그 줄을 지웁니다.
@@ -273,7 +292,7 @@ task_record는 `.routing/tasks/<task_id>.json`에 저장합니다(`templates.tas
 - [ ] 워커 실행 명령이 호스트 세션에서만 나감 — 워커 세션에는 spawn 권한 없음 (ENF-2)
 - [ ] task-verifier·advisor·inspector는 read-only 워크트리에서 실행 (ENF-4)
 - [ ] 워커에게는 지시서+관련 plan 항목만 전달, 호스트 프롬프트 전체·키 전달 금지 (ENF-7)
-- [ ] 예산 카운터(Jev 2회, 자동 수리 2회)가 task_record에서 실제로 증가·차단 (CLS-11, VER-11)
+- [ ] 예산 카운터(Jev 5회, 자동 수리 2회)가 task_record에서 실제로 증가·차단 (CLS-11, VER-11)
 
 하나라도 없으면 해당 역할만 BLOCKED로 두고 나머지만 켭니다(ENF-5).
 
@@ -309,6 +328,8 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 | `[WARN] 'jsonschema' not installed` | `pip install jsonschema` 후 `python3 .routing/verify_routing.py` |
 | `[FAIL] routing block ... not found` | `bash init_routing.sh --harness claude` 또는 `--harness agents`로 재삽입 |
 | `[FAIL] ... triggers fired but no evidence order issued and no skip record` | 호스트가 inspector/researcher를 조용히 건너뜀. 해당 task_record의 `evidence_orders_evaluated`에 `issued` 또는 `skipped`를 채우고, AGENTS/CLAUDE.md 블록이 최신인지 확인 |
+| advisor가 전혀 호출되지 않음 | `python3 .routing/verify_routing.py`의 task records 단계가 advisor 사용 현황을 출력함. `consultations_evaluated`가 있는 기록이 0건이면 호스트가 트리거를 평가하지 않는 것 — AGENTS/CLAUDE.md 블록이 v2.5.6 이상인지 확인. 평가는 하는데 발동이 0건이면 `design_note.candidates`와 `repair_cycles`가 실제로 기록되는지 확인 |
+| advisor와 planner가 같은 모델이라는 경고 | 같은 모델의 자문은 두 번째 의견이 아님(ROLE-8). `models.json`에서 advisor를 planner·호스트와 다른 계열 모델로 지정 |
 | inspector/researcher가 전혀 호출되지 않음 | task_record의 `evidence_orders_evaluated.inspector_triggers`가 비어 있는지 확인. 비어 있으면 호스트가 트리거를 평가하지 않은 것 — `unknowns`에 `repo:`/`external:` 접두어를 쓰는지, `external_contracts.status`를 채우는지 확인 |
 | `--ping`에서 401/403 | `models.json#/router/api_key_env`에 적힌 환경변수 확인 |
 | `[FAIL] models.json violates models.schema.json ... 'launch_channels' is a required property` | 구버전 `models.json`. `init_routing.sh`를 다시 실행하면 자동 마이그레이션되며, 수동으로는 `python3 .routing/migrate_models.py .routing/models.json .routing/models.example.json` |
@@ -320,6 +341,7 @@ bash /tmp/jtr/init_routing.sh --ref v2.5.0
 
 ## 버전
 
+- **2.5.6-draft** — ① advisor가 전혀 호출되지 않던 문제 수정: 긍정 발동 트리거(ADV-1..5), 평가 시점, 지시서 기본값·출력 계약, skip 기록 의무, `task_record.consultations_evaluated`, `needs_specialist`를 트리거로 승격(ROLE-8, ROLE-9, ORDER-10). ② 코드 품질 절 신설(QUAL-1..11): 작업 유형별 playbook, design_note, 최소 diff, 검증 가능한 단위, 근본 원인, 동작 기준 테스트, 실제 산출물 증명, diff 정리, 증명 있는 검토 지적, 보고서·PR 형식. `templates.worker_report`·`templates.review_report` 추가. 스테이지·역할·임계값·Jev 문항은 변경 없음.
 - **2.5.5-draft (+hooks)** — Claude Code PreToolUse 훅 `hooks/jev_order9_guard.py` 추가: Agent/Task 서브에이전트로 위임 역할을 돌리는 호출을 차단. `init_routing.sh --hooks user|project|local|none`(기본 user), `--uninstall-hooks`.
 - **2.5.5-draft** — 실행 채널 고정(ORDER-9): 모든 위임 역할은 하네스를 불문하고 Herdr pane으로 실행, 호스트의 Agent/서브에이전트 도구는 역할 실행 채널이 아님. `work_order`에 `launch_channel`·`pane_id`, `models.json` 어댑터에 `launch_channels`와 `claude` 항목 추가. 옵션 B(읽기 전용 역할의 제한 서브에이전트)는 전제 조건과 함께 비활성으로 문서화.
 - **2.5.4-draft** — 분류→작업 매핑 감사 반영: ui_ux·database·security·api_integration modifier가 task_type으로도 활성화(MOD-1), analysis×delivery → NEEDS_CONTEXT(CLS-7b), `change_kind`에 `test_only` 추가(EVID-2a).
