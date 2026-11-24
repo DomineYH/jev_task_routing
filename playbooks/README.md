@@ -46,14 +46,14 @@ playbook은 `testing_mode`, 워크플로, 역할, 리스크를 고르거나 덮�
 | [performance.md](performance.md) | `task_type == performance` |
 | [investigation.md](investigation.md) | `work_mode == exploration` (프로토타입이 아닐 때) |
 | [prototype.md](prototype.md) | `work_mode == exploration` AND `change_kind == disposable_prototype` |
-| (없음) | `work_mode == emergency`, 또는 docs / tests / dependency_update / infrastructure |
+| (없음) | `work_mode == emergency`, 또는 docs / tests / dependency_update / infrastructure (delivery의 analysis·mixed·other는 이 단계 전에 CLS-7b·CLS-8·CLS-5에서 멈춤) |
 
 작업 유형별 검증 요구(UI는 렌더링 확인, DB는 비운영 데이터로 마이그레이션 등)는 playbook이 아니라 `jev_task_routing.json`의 `modifiers`에 있다.
 
 ## 고치는 방법
 
 - 단계·보고 증거·노트는 이 폴더의 파일만 고친다. JSON은 건드리지 않는다.
-- 새 playbook을 추가하면 `jev_task_routing.json#/playbooks/catalog`에 경로를, `select`에 선택 조건을 함께 추가한다. `build_config.py`도 같은 내용으로 맞춘다.
+- 새 playbook을 추가하면 네 곳을 함께 고친다: 이 폴더의 `<id>.md`, `jev_task_routing.json#/playbooks/catalog`(경로)와 `select`(선택 조건), `jev_task_routing.schema.json#/$defs/playbookId`의 `enum`(id 추가). `build_config.py`도 같은 내용으로 맞춘다. `verify_routing.py`가 catalog와 enum이 다르면 FAIL을 낸다.
 - 고친 뒤 설치한 프로젝트에서 `python3 .routing/verify_routing.py`로 확인한다.
 
 출처 고지: [NOTICE.md](NOTICE.md)

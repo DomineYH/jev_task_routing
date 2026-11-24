@@ -337,12 +337,21 @@ def parse_playbook(text):
     return meta, steps, sections, errors
 
 
-def check_playbooks(routing, cfg, policy_md, rep):
+def check_playbooks(routing, cfg, policy_md, rep, schema=None):
     """QUAL-1: playbooks/<id>.md is the only source of a playbook's steps, report evidence and notes."""
     pb = cfg.get("playbooks", {})
     catalog = pb.get("catalog", {})
     if not catalog:
         return
+    enum = ((schema or {}).get("$defs", {}).get("playbookId") or {}).get("enum")
+    if enum is not None:
+        ids = {x for x in enum if x is not None}
+        if ids != set(catalog) or None not in enum:
+            rep.error("jev_task_routing.schema.json $defs.playbookId.enum must be the playbooks.catalog keys plus null"
+                      f" (missing: {sorted(set(catalog) - ids)}, extra: {sorted(ids - set(catalog))}{'' if None in enum else ', null absent'})"
+                      " — task records and work orders naming a playbook would fail validation")
+        else:
+            rep.ok(f"schema playbookId enum matches playbooks.catalog ({len(ids)} ids + null)")
     defined = set(re.findall(r"\*\*(" + RULE_PAT + r")\b", policy_md)) | set(re.findall(r"\((" + RULE_PAT + r")\)", policy_md))
     good = 0
     for pid, entry in catalog.items():
@@ -689,7 +698,7 @@ def main():
     models = check_models(routing, cfg, rep)
     print("[4/9] cross references")
     check_cross_refs(cfg, policy_md, rep)
-    check_playbooks(routing, cfg, policy_md, rep)
+    check_playbooks(routing, cfg, policy_md, rep, schema)
     print("[5/9] agent instructions")
     check_agent_block(project, rep)
     print("[6/9] task records and reports (EVID-7 / ORDER-9 / ROLE-9 / QUAL-9)")

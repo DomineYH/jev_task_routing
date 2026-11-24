@@ -1,6 +1,6 @@
 # jev_task_routing
 
-멀티 에이전트 코딩 파이프라인용 **작업 라우팅·거버넌스 정책**입니다. 호스트 세션(코디네이터)이 Jev(TypeSafe 의미 분류기)로 작업을 분류하고, 리스크에 맞는 최소 워크플로를 고른 뒤, 범위가 제한된 작업 지시서로만 워커를 움직이게 합니다. v2.5.6부터는 지시서 안에서 코드를 어떻게 쓰고 검토할지(작업 유형별 playbook, 보고서 계약)와 advisor 자문을 언제 붙일지도 정합니다.
+멀티 에이전트 코딩 파이프라인용 **작업 라우팅·거버넌스 정책**입니다. 호스트 세션(코디네이터)이 Jev(TypeSafe 의미 분류기)로 작업을 분류하고, 리스크에 맞는 최소 워크플로를 고른 뒤, 범위가 제한된 작업 지시서로만 워커를 움직이게 합니다. v2.5.6부터는 지시서 안에서 코드를 어떻게 쓰고 검토할지(작업 유형별 playbook, 보고서 계약)와 advisor 자문을 언제 붙일지도 정합니다. v2.5.7-draft부터 playbook 본문은 [`playbooks/<id>.md`](playbooks/)에만 있으며, 설치 시 `.routing/playbooks/`로 복사됩니다.
 
 > 이 저장소는 **정책**입니다. 그 자체로는 아무것도 실행하거나 강제하지 않습니다. 실제 강제는 호스트 실행기가 구현해야 하며(ROUTING_POLICY.md §11 ENF), 그 전까지는 섀도 모드로만 운용합니다.
 
@@ -8,7 +8,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| `jev_task_routing.json` | 기계 판독용 정책(버전은 파일 안 `version`) — 임계값, 7개 역할의 권한·발동 조건, 워크플로·스테이지, Jev 14문항 루브릭, inspector/researcher 트리거, advisor 트리거(`consultation_orders`), 코드 품질 기준(`code_quality`)과 작업 유형별 playbook(`playbooks`), 템플릿. **모델 설정은 없음** |
+| `jev_task_routing.json` | 기계 판독용 정책(버전은 파일 안 `version`) — 임계값, 7개 역할의 권한·발동 조건, 워크플로·스테이지, Jev 14문항 루브릭, inspector/researcher 트리거, advisor 트리거(`consultation_orders`), 코드 품질 기준(`code_quality`)과 playbook 선택 규칙(`playbooks`: id → 경로만. 본문은 `playbooks/<id>.md`, 설치 시 `.routing/playbooks/`), 템플릿. **모델 설정은 없음** |
 | `models.json` | **모델 설정의 유일한 위치** — 역할별 harness/model/effort, 기본값, 프로필(`standard`, `high_assurance`), 라우터(Jev) 연결 정보, 어댑터별 허용 effort |
 | `models.schema.json` | `models.json`의 JSON Schema |
 | `resolve_models.py` | 역할별 최종 harness/model/effort와 그 출처(오버라이드/프로필/역할/기본값)를 출력하고 어댑터 preflight 수행 |

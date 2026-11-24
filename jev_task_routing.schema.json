@@ -1890,6 +1890,22 @@
         "null"
       ]
     },
+    "playbookId": {
+      "description": "playbooks.catalog key, or null when playbooks.select names none (QUAL-1).",
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "bug_fix",
+        "feature",
+        "refactor",
+        "performance",
+        "investigation",
+        "prototype",
+        null
+      ]
+    },
     "routerStatus": {
       "enum": [
         "READY_FOR_PREFLIGHT",
@@ -2526,10 +2542,7 @@
           "description": "Herdr pane id, filled by the host after launch."
         },
         "playbook_ref": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "$ref": "#/$defs/playbookId",
           "description": "playbooks.catalog key whose steps are rendered into this order (QUAL-1)."
         },
         "design_note_ref": {
@@ -3103,10 +3116,7 @@
           }
         },
         "playbook_id": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "$ref": "#/$defs/playbookId",
           "description": "Selected playbooks.catalog key, or null when playbooks.select names none (QUAL-1). Optional for records written before v2.5.6."
         },
         "playbook_sha256": {
@@ -3265,10 +3275,7 @@
           "type": "string"
         },
         "playbook_id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "$ref": "#/$defs/playbookId"
         },
         "changes": {
           "type": "array",

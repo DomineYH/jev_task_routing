@@ -437,7 +437,7 @@ playbooks = O(
         O(when="task_type == refactor", playbook="refactor"),
         O(when="task_type == performance", playbook="performance"),
         O(when="task_type in [feature, ui_ux, api_integration, database, security]", playbook="feature"),
-        O(when="otherwise (docs, tests, dependency_update, infrastructure)", playbook=None),
+        O(when="otherwise (docs, tests, dependency_update, infrastructure; analysis, mixed and other in delivery are stopped earlier by CLS-7b, CLS-8 and CLS-5)", playbook=None),
     ],
     non_override="never selects or overrides testing_mode, workflow, roles or risk (VER-1, WF-1); a step that says to delegate is done by the worker itself (AUTH-3)",
     render="read .routing/<catalog path>; send the '## Steps' list verbatim and the frontmatter report_evidence; '## Notes' guide the host and are not sent; record task_record.playbook_sha256 of the file read",

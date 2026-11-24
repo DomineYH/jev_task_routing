@@ -1292,7 +1292,7 @@
         "playbook": "feature"
       },
       {
-        "when": "otherwise (docs, tests, dependency_update, infrastructure)",
+        "when": "otherwise (docs, tests, dependency_update, infrastructure; analysis, mixed and other in delivery are stopped earlier by CLS-7b, CLS-8 and CLS-5)",
         "playbook": null
       }
     ],
