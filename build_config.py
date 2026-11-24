@@ -428,7 +428,7 @@ code_quality = O(
 )
 
 playbooks = O(
-    purpose="Ordered steps the host renders into an implementation order, and the evidence that order's report must contain (QUAL-1).",
+    purpose="Ordered steps the host renders into an implementation order, and the evidence that order's report must contain (QUAL-1). The playbook text lives in the files named by catalog; this section only selects.",
     select=[
         O(when="mode == emergency", playbook=None),
         O(when="mode == exploration AND change_kind == disposable_prototype", playbook="prototype"),
@@ -440,70 +440,9 @@ playbooks = O(
         O(when="otherwise (docs, tests, dependency_update, infrastructure)", playbook=None),
     ],
     non_override="never selects or overrides testing_mode, workflow, roles or risk (VER-1, WF-1); a step that says to delegate is done by the worker itself (AUTH-3)",
-    catalog=O(
-        bug_fix=O(
-            steps=[
-                "Reproduce the defect on the surface where it was observed before changing code; if it will not reproduce, tighten conditions or add instrumentation, then return NEEDS_DECISION with what was tried.",
-                "Narrow the cause by elimination: list candidate causes, take the split that removes the most, decide each with runtime evidence rather than by reading alone.",
-                "Fix at the first place the system went wrong, with the smallest change the evidence justifies; revert anything a refuted hypothesis motivated.",
-                "Re-run the original reproduction on the same surface; it must now pass. Unit tests alone show branch behavior, not absence of the defect.",
-                "Keep a regression check; under test_first, commit the failing check before the fix.",
-            ],
-            report_evidence=["reproduction command and the broken behavior", "root cause with file:line", "failing-then-passing reproduction output, verbatim", "other instances of the same fault"],
-            rule_refs=["QUAL-4", "QUAL-5", "QUAL-7"],
-        ),
-        feature=O(
-            steps=[
-                "Trace the affected subsystem: entry points, callers, the data that flows through.",
-                "Build to the order's design_note; if the code contradicts it, stop and return NEEDS_DECISION instead of improvising another shape.",
-                "Work in verifiable units, each ending in a check and a commit; write tests per the accepted testing_mode against observable behavior.",
-                "When a shared primitive changes, update every consumer and verify each.",
-                "Verify on the matching surface, self-review the diff, leave small ordered commits.",
-            ],
-            report_evidence=["each acceptance criterion mapped to a check and result ref", "choices made within local discretion and why", "units with the check run after each", "open decisions"],
-            rule_refs=["QUAL-2", "QUAL-4", "QUAL-6", "QUAL-7", "QUAL-8"],
-        ),
-        refactor=O(
-            steps=[
-                "Pin current behavior first: run existing protection; where it is missing add a characterization test, snapshot or old-vs-new equivalence script. Type-check and lint are not a pin.",
-                "State the target shape from the design_note; the reshape must delete branches, layers or invalid states, not add indirection.",
-                "Subtract first: delete dead code, collapse one-caller wrappers, drop redundant validation.",
-                "Move in small behavior-preserving steps with the pin green after each; migrate every caller and delete the old API in the same change; check renames in strings, docs and config.",
-                "Prove equivalence on the real artifact. A bug or missing feature found on the way is reported, not fixed in this order.",
-            ],
-            report_evidence=["the pin and its result before and after", "the structure that changed and what it removed", "equivalence proof", "what was tried and reverted"],
-            rule_refs=["QUAL-3", "QUAL-4", "QUAL-7"],
-        ),
-        performance=O(
-            steps=[
-                "Capture a baseline with a repeatable command on the path a user waits on; record environment and run count.",
-                "Find the measured cause from a profile or trace before changing code.",
-                "Try remedies cheapest first: stop doing the work, stop repeating it, do less, defer it, do it concurrently, make it cheaper. Stop when the target is met.",
-                "Re-measure with the same harness over alternating runs and confirm behavior is unchanged.",
-            ],
-            report_evidence=["baseline, after, delta, range and run count", "what limits the number now", "artifact path of the measurements", "behavior-preservation check result"],
-            rule_refs=["QUAL-4", "QUAL-7"],
-        ),
-        investigation=O(
-            steps=[
-                "Trace the code the question is about and cite file:line.",
-                "Answer with overview, how it works, where things live and gotchas; for a choice, a recommendation with a tradeoffs table.",
-                "No code change. If one is warranted, say so and return to the host for delivery reclassification.",
-            ],
-            report_evidence=["cited sources for every claim", "what remains unknown"],
-            rule_refs=["QUAL-10", "WF-4"],
-        ),
-        prototype=O(
-            steps=[
-                "State the decision the prototype exists to make; no decision, no prototype.",
-                "Build throwaway inside the order's isolated scratch scope, outside product source; no tests, no abstractions.",
-                "When comparing alternatives, build them side by side behind one switch, each labeled.",
-                "Observe the thing being decided (output, timing, screenshot) and record it.",
-            ],
-            report_evidence=["variants built and the scratch path", "the observation for each variant", "tradeoffs and a recommendation", "a plain statement that the code is throwaway"],
-            rule_refs=["QUAL-11", "WF-4"],
-        ),
-    ),
+    render="read .routing/<catalog path>; send the '## Steps' list verbatim and the frontmatter report_evidence; '## Notes' guide the host and are not sent; record task_record.playbook_sha256 of the file read",
+    # 2.5.7: steps, report_evidence and notes live in playbooks/<id>.md (the only source); catalog keeps id -> path.
+    catalog=O((pid, O(path="playbooks/%s.md" % pid)) for pid in ["bug_fix", "feature", "refactor", "performance", "investigation", "prototype"]),
     rule_refs=["QUAL-1", "QUAL-11"],
 )
 
@@ -561,14 +500,14 @@ for sid, (owner, summary, refs) in STAGE.items():
 MOD = {
     "bug_fix": ("task_type==bug_fix", ["regression check retained", "before/after evidence", "environment failure != reproduced defect"]),
     "refactor": ("task_type==refactor", ["existing behavior protected", "intentional outcome changes separated", "no artificial red phase"]),
-    "ui_ux": ("task_type==ui_ux OR touches_ui==true", ["rendered output", "accessibility behavior", "interactions", "affected viewport sizes"]),
-    "database": ("task_type==database OR data_sensitive==true OR migration in scope", ["migration with representative nonproduction data", "compatibility", "integrity", "recovery"]),
-    "api_integration": ("task_type==api_integration OR touches_external_api==true", ["request/response compatibility", "errors/timeouts/malformed data/retries", "mock vs real connectivity distinguished"]),
-    "dependency_update": ("task_type==dependency_update", ["version compatibility", "configuration", "runtime consequences", "never auto-minor"]),
+    "ui_ux": ("task_type==ui_ux OR touches_ui==true", ["rendered output", "accessibility behavior", "interactions", "affected viewport sizes", "visual baseline never refreshed just to make a diff pass"]),
+    "database": ("task_type==database OR data_sensitive==true OR migration in scope", ["migration with representative nonproduction data", "compatibility", "integrity", "recovery", "no production data in an implementer workspace"]),
+    "api_integration": ("task_type==api_integration OR touches_external_api==true", ["request/response compatibility", "errors/timeouts/malformed data/retries", "mock vs real connectivity distinguished", "contract source and its version or retrieval date recorded"]),
+    "dependency_update": ("task_type==dependency_update", ["version compatibility", "configuration", "runtime consequences", "never auto-minor", "before/after version identifiers recorded"]),
     "performance": ("task_type==performance", ["reproducible baseline", "load and environment recorded", "resulting metrics", "behavior preservation"]),
     "tests": ("task_type==tests", ["test intent and assertions validated", "no skipped/relaxed tests hiding regressions"]),
     "infrastructure": ("task_type==infrastructure OR production_impact==true", ["configuration", "build/deploy validation", "failure behavior", "recovery paths"]),
-    "security": ("task_type==security OR security_sensitive==true", ["negative authorization cases", "trust boundaries", "secret handling", "regression coverage"]),
+    "security": ("task_type==security OR security_sensitive==true", ["negative authorization cases", "trust boundaries", "secret handling", "regression coverage", "checked at the real enforcement point, not only a helper unit test"]),
     "docs": ("needs_documentation==true OR task_type==docs", ["documentation/changelog updated for changed behavior", "links/rendering checked", "not a substitute for behavioral checks"]),
 }
 modifiers = O()
@@ -681,12 +620,13 @@ enums = O(
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
-VERSION = "2.5.6-draft"
+VERSION = "2.5.7-draft"
 task_record = copy.deepcopy(src["task_record_template"])
 task_record["policy_version"] = VERSION
 task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
 task_record["evidence_orders_evaluated"] = O(inspector_triggers=[], researcher_triggers=[], issued=[], skipped=[])  # NEW in 2.5.1
 task_record["playbook_id"] = None  # NEW in 2.5.6 (QUAL-1)
+task_record["playbook_sha256"] = None  # NEW in 2.5.7 (QUAL-1): hash of the playbook file rendered
 task_record["design_note"] = None  # NEW in 2.5.6 (QUAL-2); shape in code_quality.design_note.fields
 task_record["consultations_evaluated"] = O(advisor_triggers=[], issued=[], skipped=[])  # NEW in 2.5.6 (ROLE-9)
 
@@ -779,6 +719,7 @@ cfg["provenance"] = O(
         "2.5.6: advisor gets positive triggers ADV-1..5, order defaults, an output contract, a mandatory skip record and task_record.consultations_evaluated (ROLE-8, ROLE-9, ORDER-10); needs_specialist becomes a consultation trigger; review and consultation orders may name one report path under .routing/evidence/",
         "2.5.6: new code_quality and playbooks sections (QUAL-1..11), templates.worker_report and templates.review_report, work_order.playbook_ref/design_note_ref, task_record.playbook_id/design_note; stage summaries updated; no new stage, role or Jev question",
         "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)",
+        "2.5.7: playbook steps, report evidence and notes move to playbooks/<id>.md (Markdown + frontmatter), installed to .routing/playbooks/; playbooks.catalog keeps only id -> path; task_record gains playbook_sha256; modifiers gain five checks from the former per-type notes; no stage, role, workflow, threshold or Jev question changed",
     ],
 )
 cfg["precedence"] = O(

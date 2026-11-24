@@ -1,10 +1,16 @@
-# refactor
+---
+id: refactor
+title: Refactor
+rule_refs: [QUAL-3, QUAL-4, QUAL-7]
+report_evidence:
+  - the pin and its result before and after
+  - the structure that changed and what it removed
+  - equivalence proof
+  - what was tried and reverted
+adapted_from: pstack skills/poteto-mode/playbooks/refactoring.md @ 005d8f6 (MIT, see NOTICE.md)
+---
 
-Catalog id: `refactor`
-
-Selected when: `task_type == refactor`.
-
-Source of truth: `playbooks.catalog.refactor` in `jev_task_routing.json`. This file restates that entry for reading. If this file and the JSON disagree, the JSON wins (QUAL-1).
+# Refactor
 
 ## Steps
 
@@ -13,17 +19,6 @@ Source of truth: `playbooks.catalog.refactor` in `jev_task_routing.json`. This f
 3. Subtract first: delete dead code, collapse one-caller wrappers, drop redundant validation.
 4. Move in small behavior-preserving steps with the pin green after each; migrate every caller and delete the old API in the same change; check renames in strings, docs and config.
 5. Prove equivalence on the real artifact. A bug or missing feature found on the way is reported, not fixed in this order.
-
-## Required report evidence
-
-- the pin and its result before and after
-- the structure that changed and what it removed
-- equivalence proof
-- what was tried and reverted
-
-## Rule refs
-
-`QUAL-3`, `QUAL-4`, `QUAL-7`
 
 ## Notes
 

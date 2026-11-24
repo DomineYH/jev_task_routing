@@ -1,10 +1,16 @@
-# prototype
+---
+id: prototype
+title: Prototype
+rule_refs: [QUAL-11, WF-4]
+report_evidence:
+  - variants built and the scratch path
+  - the observation for each variant
+  - tradeoffs and a recommendation
+  - a plain statement that the code is throwaway
+adapted_from: pstack skills/poteto-mode/playbooks/prototype.md @ 005d8f6 (MIT, see NOTICE.md)
+---
 
-Catalog id: `prototype`
-
-Selected when: `work_mode == exploration` AND `change_kind == disposable_prototype`.
-
-Source of truth: `playbooks.catalog.prototype` in `jev_task_routing.json`. This file restates that entry for reading. If this file and the JSON disagree, the JSON wins (QUAL-1).
+# Prototype
 
 ## Steps
 
@@ -12,17 +18,6 @@ Source of truth: `playbooks.catalog.prototype` in `jev_task_routing.json`. This 
 2. Build throwaway inside the order's isolated scratch scope, outside product source; no tests, no abstractions.
 3. When comparing alternatives, build them side by side behind one switch, each labeled.
 4. Observe the thing being decided (output, timing, screenshot) and record it.
-
-## Required report evidence
-
-- variants built and the scratch path
-- the observation for each variant
-- tradeoffs and a recommendation
-- a plain statement that the code is throwaway
-
-## Rule refs
-
-`QUAL-11`, `WF-4`
 
 ## Notes
 

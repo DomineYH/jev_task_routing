@@ -152,6 +152,12 @@ SRC="$TMP/src"
 for f in "${POLICY_FILES[@]}"; do
   [[ -f "$SRC/$f" ]] || die 4 "source is missing required file: $f"
 done
+# playbooks: every catalog path in the config must exist in the source (QUAL-1)
+PLAYBOOK_FILES=()
+while IFS= read -r line; do if [[ -n "$line" ]]; then PLAYBOOK_FILES+=("$line"); fi; done < <(python3 -c 'import json,sys;print("\n".join(e["path"] for e in json.load(open(sys.argv[1])).get("playbooks", {}).get("catalog", {}).values() if isinstance(e, dict) and e.get("path")))' "$SRC/jev_task_routing.json")
+for f in ${PLAYBOOK_FILES[@]+"${PLAYBOOK_FILES[@]}"}; do
+  [[ -f "$SRC/$f" ]] || die 4 "source is missing playbook file: $f"
+done
 SRC_COMMIT="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo local)"
 printf '%s    source revision: %s%s\n' "$c_dim" "$SRC_COMMIT" "$c_off"
 
@@ -165,6 +171,21 @@ for f in jev_task_routing.json jev_task_routing.schema.json models.schema.json r
   cp "$SRC/$f" "$DEST/$f"
 done
 chmod +x "$DEST/verify_routing.py" "$DEST/resolve_models.py"
+# playbooks are policy files: the source repository is their only origin (QUAL-1)
+# (sources before v2.5.7 keep playbooks inside the config and have no files to install)
+[[ ${#PLAYBOOK_FILES[@]} -gt 0 ]] && mkdir -p "$DEST/playbooks"
+for f in ${PLAYBOOK_FILES[@]+"${PLAYBOOK_FILES[@]}"} playbooks/README.md playbooks/NOTICE.md; do
+  [[ -d "$DEST/playbooks" ]] || continue
+  [[ -f "$SRC/$f" ]] || continue
+  if [[ -f "$DEST/$f" ]] && ! cmp -s "$SRC/$f" "$DEST/$f"; then
+    cp "$DEST/$f" "$DEST/$f.bak"; warn "updated $DEST/$f (previous copy saved as $(basename "$f").bak)"
+  fi
+  cp "$SRC/$f" "$DEST/$f"
+done
+for f in "$DEST"/playbooks/*.md; do
+  [[ -f "$f" ]] || continue
+  [[ -f "$SRC/playbooks/$(basename "$f")" ]] || warn "$f is not in the source and is not used (remove it, or add it to playbooks.catalog upstream)"
+done
 # models.json is user-edited: create once, keep an always-fresh example beside it
 cp "$SRC/models.json" "$DEST/models.example.json"
 if [[ -f "$DEST/models.json" ]]; then
@@ -196,11 +217,14 @@ if ! grep -qxF "$GI_LINE2" .gitignore; then printf '%s\n' "$GI_LINE2" >> .gitign
 
 POLICY_VERSION="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$DEST/jev_task_routing.json")"
 write_installed() {
-python3 - "$DEST/INSTALLED.json" "$POLICY_VERSION" "$REPO_URL" "$SRC_COMMIT" "$1" <<'PY'
-import json, sys, datetime
+python3 - "$DEST/INSTALLED.json" "$POLICY_VERSION" "$REPO_URL" "$SRC_COMMIT" "$1" "$DEST" <<'PY'
+import json, sys, datetime, hashlib, pathlib
+dest = pathlib.Path(sys.argv[6])
+cat = json.load(open(dest / "jev_task_routing.json", encoding="utf-8")).get("playbooks", {}).get("catalog", {})
+pbs = {pid: hashlib.sha256((dest / e["path"]).read_bytes()).hexdigest() for pid, e in cat.items() if isinstance(e, dict) and e.get("path") and (dest / e["path"]).is_file()}
 json.dump({"policy_version": sys.argv[2], "source": sys.argv[3], "source_revision": sys.argv[4],
            "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-           "shadow_mode": True, "hook_scope": sys.argv[5]}, open(sys.argv[1], "w"), indent=2)
+           "shadow_mode": True, "hook_scope": sys.argv[5], "playbooks_sha256": pbs}, open(sys.argv[1], "w"), indent=2)
 PY
 }
 write_installed "pending"

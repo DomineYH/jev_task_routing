@@ -1,10 +1,16 @@
-# bug_fix
+---
+id: bug_fix
+title: Bug fix
+rule_refs: [QUAL-4, QUAL-5, QUAL-7]
+report_evidence:
+  - reproduction command and the broken behavior
+  - root cause with file:line
+  - failing-then-passing reproduction output, verbatim
+  - other instances of the same fault
+adapted_from: pstack skills/poteto-mode/playbooks/bug-fix.md @ 005d8f6 (MIT, see NOTICE.md)
+---
 
-Catalog id: `bug_fix`
-
-Selected when: `task_type == bug_fix`.
-
-Source of truth: `playbooks.catalog.bug_fix` in `jev_task_routing.json`. This file restates that entry for reading. If this file and the JSON disagree, the JSON wins (QUAL-1).
+# Bug fix
 
 ## Steps
 
@@ -13,17 +19,6 @@ Source of truth: `playbooks.catalog.bug_fix` in `jev_task_routing.json`. This fi
 3. Fix at the first place the system went wrong, with the smallest change the evidence justifies; revert anything a refuted hypothesis motivated.
 4. Re-run the original reproduction on the same surface; it must now pass. Unit tests alone show branch behavior, not absence of the defect.
 5. Keep a regression check; under test_first, commit the failing check before the fix.
-
-## Required report evidence
-
-- reproduction command and the broken behavior
-- root cause with file:line
-- failing-then-passing reproduction output, verbatim
-- other instances of the same fault
-
-## Rule refs
-
-`QUAL-4`, `QUAL-5`, `QUAL-7`
 
 ## Notes
 

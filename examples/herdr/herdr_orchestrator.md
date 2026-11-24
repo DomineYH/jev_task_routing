@@ -17,7 +17,7 @@
 - pane에 보내는 것은 작업 지시서 하나다: `templates.work_order`의 필수 필드(목표, 수용 기준, 입력 참조와 버전, 읽기/쓰기 범위, 허용 행동, 제약과 재량, 중단 조건, 산출물, 보고 경로)와 관련 verification_plan 항목, 공유 제약만 보낸다(ORDER-2). 정책 전문·이 문서·호스트 프롬프트는 보내지 않는다(ENF-7).
 - 조사 역할(inspector/researcher)은 `evidence_orders.order_defaults`를 쓴다: 대상 저장소는 읽기 전용, 쓰기는 `.routing/evidence/<order_id>.json` 하나(ORDER-7).
 - 자문(advisor)은 `consultation_orders.order_defaults`를 쓴다: `decision_question` 하나와 발동한 트리거 ID(ADV-n), 검토 중인 선택지, 근거 참조를 적고, 쓰기는 보고서 경로 하나뿐이다(ORDER-10). 계획 작성자와 다른 세션에서 띄우고, 가능하면 다른 모델을 쓴다(ROLE-8).
-- 구현 지시서에는 `playbook_ref`에 해당하는 단계와 보고서에 담을 증거 목록(`playbooks.catalog.<id>`), 그리고 `design_note`를 함께 넣는다(QUAL-1, QUAL-2). 단계는 그대로 붙여 넣되 정책 전문은 보내지 않는다.
+- 구현 지시서에는 `playbook_ref`에 해당하는 `.routing/playbooks/<id>.md`의 `## Steps`와 보고서에 담을 증거 목록(`report_evidence`), 그리고 `design_note`를 함께 넣는다(QUAL-1, QUAL-2). 단계는 그대로 붙여 넣되 `## Notes`와 정책 전문은 보내지 않는다.
 - 워커에게 "다른 pane에 전달해 달라"고 시키지 않는다. 모든 전달은 호스트가 한다(AUTH-2).
 
 ## 4. 대기와 생존 확인 (ORDER-8)

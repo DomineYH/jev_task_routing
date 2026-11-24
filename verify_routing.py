@@ -282,6 +282,123 @@ def check_cross_refs(cfg, policy_md, rep):
         rep.ok("every trusted flag has a consumption rule")
 
 
+PLAYBOOK_KEYS = {"id": str, "title": str, "rule_refs": list, "report_evidence": list, "adapted_from": str}
+PLAYBOOK_REQUIRED = ("id", "title", "rule_refs", "report_evidence")
+PLAYBOOK_MAX_STEPS = 6
+PLAYBOOK_MAX_STEP_LEN = 260
+
+
+def parse_playbook(text):
+    """Parse playbooks/<id>.md: restricted frontmatter (scalar, [a, b] or '  - item' lists),
+    then '## Steps' (numbered, one line each) and optional '## Notes'. Returns (meta, steps, sections, errors)."""
+    errors = []
+    if not text.startswith("---\n"):
+        return {}, [], {}, ["file must start with a '---' frontmatter block"]
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}, [], {}, ["frontmatter block is not closed with '---'"]
+    meta, key = {}, None
+    for n, line in enumerate(text[4:end].split("\n"), 2):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith("  - ") and key and isinstance(meta.get(key), list):
+            meta[key].append(line[4:].strip())
+            continue
+        m = re.match(r"^([a-z_]+):(?:\s+(.*))?$", line)
+        if not m:
+            errors.append(f"frontmatter line {n} not understood: {line[:60]!r}")
+            key = None
+            continue
+        key, val = m.group(1), (m.group(2) or "").strip()
+        if val.startswith("[") and val.endswith("]"):
+            meta[key] = [x.strip() for x in val[1:-1].split(",") if x.strip()]
+        elif val:
+            meta[key] = val
+        else:
+            meta[key] = []
+    body = text[end + 5:]
+    sections, cur = {}, None
+    for line in body.split("\n"):
+        h = re.match(r"^## (.+?)\s*$", line)
+        if h:
+            cur = h.group(1)
+            sections.setdefault(cur, [])
+        elif cur:
+            sections[cur].append(line)
+    steps = []
+    for line in sections.get("Steps", []):
+        if not line.strip():
+            continue
+        m = re.match(r"^(\d+)\. (.+)$", line)
+        if not m:
+            errors.append(f"'## Steps' line is not a numbered step: {line[:60]!r}")
+            continue
+        steps.append((int(m.group(1)), m.group(2).strip()))
+    return meta, steps, sections, errors
+
+
+def check_playbooks(routing, cfg, policy_md, rep):
+    """QUAL-1: playbooks/<id>.md is the only source of a playbook's steps, report evidence and notes."""
+    pb = cfg.get("playbooks", {})
+    catalog = pb.get("catalog", {})
+    if not catalog:
+        return
+    defined = set(re.findall(r"\*\*(" + RULE_PAT + r")\b", policy_md)) | set(re.findall(r"\((" + RULE_PAT + r")\)", policy_md))
+    good = 0
+    for pid, entry in catalog.items():
+        rel = entry.get("path") if isinstance(entry, dict) else None
+        if not rel:
+            rep.error(f"playbooks.catalog.{pid}: no path (QUAL-1)")
+            continue
+        p = routing / rel
+        if not p.is_file():
+            rep.error(f"playbook file missing: .routing/{rel} (catalog id '{pid}')")
+            continue
+        meta, steps, sections, errs = parse_playbook(p.read_text(encoding="utf-8"))
+        where = f".routing/{rel}"
+        for k in PLAYBOOK_REQUIRED:
+            if k not in meta:
+                errs.append(f"frontmatter is missing '{k}'")
+        for k, v in meta.items():
+            if k not in PLAYBOOK_KEYS:
+                errs.append(f"unknown frontmatter key '{k}' (allowed: {', '.join(PLAYBOOK_KEYS)})")
+            elif not isinstance(v, PLAYBOOK_KEYS[k]):
+                errs.append(f"frontmatter '{k}' must be a {'list' if PLAYBOOK_KEYS[k] is list else 'single-line string'}")
+        if meta.get("id") not in (None, pid):
+            errs.append(f"frontmatter id '{meta.get('id')}' != catalog id '{pid}'")
+        if Path(rel).stem != pid:
+            errs.append(f"file name '{Path(rel).name}' must be '{pid}.md'")
+        if isinstance(meta.get("report_evidence"), list) and not meta["report_evidence"]:
+            errs.append("report_evidence is empty")
+        if "Steps" not in sections:
+            errs.append("no '## Steps' section")
+        elif not steps:
+            errs.append("'## Steps' has no steps")
+        else:
+            if [n for n, _ in steps] != list(range(1, len(steps) + 1)):
+                errs.append(f"steps must be numbered 1..{len(steps)} in order")
+            if len(steps) > PLAYBOOK_MAX_STEPS:
+                errs.append(f"{len(steps)} steps (max {PLAYBOOK_MAX_STEPS}); steps are sent to workers verbatim")
+            long_ = [n for n, s in steps if len(s) > PLAYBOOK_MAX_STEP_LEN]
+            if long_:
+                errs.append(f"steps {long_} exceed {PLAYBOOK_MAX_STEP_LEN} characters")
+        refs = set(meta.get("rule_refs") or []) if isinstance(meta.get("rule_refs"), list) else set()
+        bad_ids = sorted(r for r in refs if not re.fullmatch(RULE_PAT, r))
+        if bad_ids:
+            errs.append(f"rule_refs entries are not rule IDs: {bad_ids}")
+        cited = refs | set(re.findall(r"\b(" + RULE_PAT + r")\b", p.read_text(encoding="utf-8")))
+        undefined = sorted(r for r in cited if re.fullmatch(RULE_PAT, r) and r not in defined)
+        if undefined:
+            errs.append(f"rule IDs not defined in ROUTING_POLICY.md: {undefined}")
+        if errs:
+            for e in errs:
+                rep.error(f"{where}: {e}")
+        else:
+            good += 1
+    if good == len(catalog):
+        rep.ok(f"playbook files: {good}/{len(catalog)} parse, ids match, rule IDs defined, steps within limits")
+
+
 def _iter_orders(items):
     """Yield (label, order_dict) from role_work_items in any shape the host may have written:
     {id: order}, {role: [order, ...]}, [order, ...]. Non-dict leaves are yielded with order=None."""
@@ -478,6 +595,21 @@ def check_installed_marker(routing, cfg, rep):
         rep.warning(f"INSTALLED.json version {meta.get('policy_version')} != config version {cfg.get('version')}")
     else:
         rep.ok(f"installed policy version {cfg.get('version')}")
+    recorded = meta.get("playbooks_sha256")
+    if recorded is None:
+        if cfg.get("playbooks", {}).get("catalog"):
+            rep.warning("INSTALLED.json has no playbooks_sha256 (installed before v2.5.7); rerun init_routing.sh")
+        return
+    import hashlib
+    changed = []
+    for pid, entry in cfg.get("playbooks", {}).get("catalog", {}).items():
+        p = routing / (entry.get("path") or "")
+        if p.is_file() and recorded.get(pid) != hashlib.sha256(p.read_bytes()).hexdigest():
+            changed.append(pid)
+    if changed:
+        rep.warning(f"playbook file(s) differ from the installed copy: {changed} — local edits are overwritten on the next install; change them upstream in playbooks/")
+    else:
+        rep.ok(f"playbook files match the install record ({len(recorded)})")
 
 
 def check_env(cfg, rep, models=None):
@@ -557,6 +689,7 @@ def main():
     models = check_models(routing, cfg, rep)
     print("[4/9] cross references")
     check_cross_refs(cfg, policy_md, rep)
+    check_playbooks(routing, cfg, policy_md, rep)
     print("[5/9] agent instructions")
     check_agent_block(project, rep)
     print("[6/9] task records and reports (EVID-7 / ORDER-9 / ROLE-9 / QUAL-9)")
