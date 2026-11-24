@@ -16,6 +16,8 @@ This document covers only **how** workers are launched, waited on and wound down
 ## 3. Handing over instructions
 - What goes to a pane is a single work order: the required fields of `templates.work_order` (objective, acceptance criteria, input refs and version, read/write scope, allowed actions, constraints and local discretion, stop conditions, deliverable, report route), the relevant verification-plan entries and shared constraints only (ORDER-2). Never send the full policy, this document or the host prompt (ENF-7).
 - Evidence roles (inspector/researcher) use `evidence_orders.order_defaults`: read-only on the target repository, a single write path `.routing/evidence/<order_id>.json` (ORDER-7).
+- Advisor uses `consultation_orders.order_defaults`: one `decision_question`, the trigger ID(s) that fired (ADV-n), the options under consideration and evidence refs; its only write is the report path (ORDER-10). Launch it in a session other than the plan's author, on a different model when possible (ROLE-8).
+- An implementation order includes the steps and report evidence of its `playbook_ref` (`playbooks.catalog.<id>`) and the `design_note` (QUAL-1, QUAL-2). Paste the steps as they are; never send the full policy.
 - Never ask a worker to relay anything to another pane. All relaying is done by the host (AUTH-2).
 
 ## 4. Waiting and liveness (ORDER-8)
@@ -25,7 +27,9 @@ This document covers only **how** workers are launched, waited on and wound down
 - While waiting, the host may: answer a worker's `NEEDS_DECISION` (Q-2), issue read-only evidence or consultation orders, inspect reports and artifacts already returned, record state. The host may not: edit product code, put a second writer on the same resources, or accept the task.
 
 ## 5. Handling reports
-- Worker reports are short: outcome, commit or artifact location, verification results, open issues. Full logs never go into the main conversation.
+- Worker reports are short and follow `templates.worker_report`: goal restated, changes, units with the check and result ref for each, the surface verified, self-review, open decisions. Every claim carries an evidence ref or the label measured/inferred/guess (QUAL-10). Full logs never go into the main conversation.
+- Review reports follow `templates.review_report`. A blocking finding needs proof — a run, a failing check or a `file:line`; no repair order is issued for an unproven finding (QUAL-9).
+- Right after a report arrives, and before issuing a repair order, evaluate the advisor triggers (ADV-1, ADV-2) and record them in `consultations_evaluated` (ROLE-9).
 - After reading a report, always inspect the actual diff, screenshots or artifacts yourself. A completion message or a reviewer's PASS is an input to acceptance, not acceptance (AUTH-5, VER-7).
 - When independent review is needed, have a worker in a **different session** — one that neither authored nor advocated the change — inspect a pinned commit or artifact version. A different model is better still, but is not by itself independence (ROLE-7).
 - Resolve factual disagreements with tests or verifiable evidence. The judgement is the host's (Q-2).

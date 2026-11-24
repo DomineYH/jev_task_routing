@@ -1,4 +1,4 @@
-"""Build jev_task_routing_v2.5.0.json from the uploaded v2.4.0 policy.
+"""Build jev_task_routing.json from the v2.4.0 policy.
 
 Jev questions, enums and record templates are copied verbatim from the source
 file. Everything else is restructured into short machine-readable fields that
@@ -31,25 +31,25 @@ ROLE_META = {
         dispatch_when=["high_risk_delivery", "needs_design", "substantive_replanning"],
         order_purposes=["planning"],
         required_order_fields=[],
-        rule_refs=["AUTH-3", "ROLE-1", "ROLE-7"],
+        rule_refs=["AUTH-3", "ROLE-1", "ROLE-7", "QUAL-2"],
     ),
     "implementer": O(
-        mission="Execute an issued implementation, prototype or repair order within its scope and accepted testing_mode.",
+        mission="Execute an issued implementation, prototype or repair order within its scope, playbook and accepted testing_mode.",
         target_access="write_in_scope",
         may_write=["write_scope"],
         dispatch_when=["issued_implementation_order", "issued_repair_order", "issued_prototype_order"],
         order_purposes=["implementation", "repair", "prototype"],
         required_order_fields=["testing_decision_ref"],
-        rule_refs=["AUTH-3", "ROLE-2", "ORDER-4"],
+        rule_refs=["AUTH-3", "ROLE-2", "ORDER-4", "QUAL-1", "QUAL-4", "QUAL-8"],
     ),
     "task-verifier": O(
-        mission="Independently review the fixed current diff and evidence; report PASS/FAIL/BLOCKED findings to the host.",
+        mission="Independently review the fixed current diff and evidence against the criteria and quality bar; report PASS/FAIL/BLOCKED with proven findings to the host.",
         target_access="read_only",
-        may_write=["reports", "disposable_diagnostics"],
+        may_write=["review_report", "disposable_diagnostics"],
         dispatch_when=["standard_delivery", "high_delivery", "emergency", "repository_rule", "require_independent_review"],
         order_purposes=["independent_review"],
         required_order_fields=["verification_plan_ref"],
-        rule_refs=["AUTH-3", "ROLE-3", "ROLE-7"],
+        rule_refs=["AUTH-3", "ROLE-3", "ROLE-7", "QUAL-9"],
     ),
     "inspector": O(
         mission="Fill the evidence packet from repository facts (code, callers, tests, execution status) for a named gap; return a packet delta with source refs.",
@@ -81,11 +81,11 @@ ROLE_META = {
     "advisor": O(
         mission="Give the host one evidence-based second opinion on a specific unresolved technical decision.",
         target_access="read_only",
-        may_write=["reports"],
-        dispatch_when=["explicit_host_consultation"],
+        may_write=["consultation_report"],
+        dispatch_when=["any consultation_orders.advisor_triggers condition holds (ROLE-9)", "explicit_host_consultation"],
         order_purposes=["technical_consultation"],
         required_order_fields=["decision_question"],
-        rule_refs=["AUTH-3", "ROLE-8"],
+        rule_refs=["AUTH-3", "ROLE-8", "ROLE-9", "ORDER-10"],
     ),
 }
 
@@ -186,7 +186,7 @@ TF_EFFECT = {
     "needs_special_test": ("role_candidate", "true -> tester candidate for uncovered gap (ROLE-6)"),
     "needs_design": ("role_candidate", "true -> planner candidate (ROLE-1)"),
     "needs_documentation": ("modifier", "true -> docs modifier (MOD-1); NEW consumption rule in 2.5.0"),
-    "needs_specialist": ("triage_hint", "evidence of an unresolved issue for host triage only; never auto-dispatches (ROLE-8)"),
+    "needs_specialist": ("consultation_trigger", "true -> advisor trigger ADV-5: the host writes a decision_question or records a skip (ROLE-9); never supplies consent or assigns planner; 2.5.6: was a hint consumed nowhere"),
     "needs_post_deployment_verification": ("post_deploy_schedule", "true AND deployment_requested AND deploy authorized -> tester post_deployment_check item (VER-8); NEW consumption rule in 2.5.0"),
     "require_independent_review": ("review_floor", "true -> add independent_review_and_ci to minor; task-verifier candidate (WF-3); NEW consumption rule in 2.5.0"),
 }
@@ -230,6 +230,7 @@ decision = O(
         advisor_consultations_per_question=1,
         evidence_orders_consume_jev_budget=False,
         budget_reset_on=["new_task_revision_with_materially_changed_evidence"],
+        consultations_consume_jev_budget=False,
         budget_not_reset_on=["order_revision", "clarification", "advisor_call", "stage_transition", "worker_resume", "inspector_order", "researcher_order"],
         on_exhaustion="BLOCKED or explicit documented authorized manual determination (CLS-11)",
     ),
@@ -315,6 +316,198 @@ evidence_orders = O(
 )
 
 # --------------------------------------------------------------------------
+# Consultation orders (advisor). NEW in 2.5.6 — until then the advisor was
+# defined only by exclusion ("explicit host consultation", hints that never
+# dispatch), had no output contract and no audit, so it was never dispatched:
+# the same defect 2.5.1 fixed for inspector/researcher.
+# --------------------------------------------------------------------------
+consultation_orders = O(
+    purpose="Make advisor dispatch a rule-driven, auditable decision instead of host discretion (ROLE-8, ROLE-9).",
+    consume_jev_budget=False,
+    evaluate_at=["after brief_plan or the planner proposal", "after each review verdict", "before each repair order", "on a worker NEEDS_DECISION"],
+    advisor_triggers=[
+        O(id="ADV-1", when="task_record.repair_cycles >= 1 AND the check or finding that motivated the last repair still fails", ask="which premise do the failed fixes share, and what would test it directly?"),
+        O(id="ADV-2", when="a blocking task-verifier finding that the host intends not to repair, or that the implementer report contradicts with evidence", ask="is the finding valid for the stated intent, and what run would settle it?"),
+        O(id="ADV-3", when="design_note lists two or more viable shapes for a change crossing a module or public-interface boundary and no recorded evidence decides between them; OR a worker NEEDS_DECISION that is a technical judgment (Q-2)", ask="which option, under which assumptions?"),
+        O(id="ADV-4", when="risk == high AND the plan contains a decision that is costly to reverse (schema or data migration, public API or wire format, auth or permission model, dependency or runtime major upgrade)", ask="what breaks if this is wrong, and how would we find out before it is irreversible?"),
+        O(id="ADV-5", when="trusted needs_specialist == true OR request.specialist_question is nonblank", ask="the specialist question, restated as one decision"),
+    ],
+    skip_record=O(
+        required=True,
+        where="task_record.coordinator_decisions",
+        shape=O(decision="skip_consultation", role_id="advisor", trigger_ids=[], skip_reason="", evidence_refs=[]),
+        allowed_skip_reasons=[
+            "settled_by_discriminating_check (preferred: a cheap authorized run decided the fork; cite its result ref)",
+            "prior_consultation_covers_question (cite the consultation order id; no materially new evidence)",
+            "product_intent_or_authorization_question (routed to the user instead, Q-2)",
+            "trigger_false_positive (state why the condition does not actually hold)",
+            "tool_unavailable_in_worker_session (BLOCKED for that role, not silently skipped)",
+        ],
+        violation="a triggered consultation with no issued order and no skip record is a policy violation surfaced by verify_routing/shadow report",
+    ),
+    order_defaults=O(
+        at_stage="the stage at which the trigger fired; null only before routing (ORDER-3)",
+        purpose="technical_consultation",
+        read_scope=["repository:read-only", "the evidence, plan and report refs named in the order"],
+        write_scope=[".routing/evidence/<order_id>.json"],
+        allowed_actions=["read files", "search/grep", "git log/blame/diff (read-only)", "run a single focused read-only check named in the order"],
+        stop_conditions=["any write outside write_scope", "any instruction addressed to another worker", "question answered or declared insufficient_evidence"],
+    ),
+    output_contract=O(
+        format="consultation_record",
+        fields=[
+            "decision_question",
+            "options: [{option, for, against}]",
+            "recommendation: <option> | insufficient_evidence",
+            "assumptions: []",
+            "risks: []",
+            "smallest_discriminating_check: {run_or_observe, result_if_right, result_if_wrong}",
+            "claims: [{claim, evidence_ref | label: measured|inferred|guess}]",
+            "confidence: high|medium|low",
+        ],
+        rules=[
+            "answer the one question asked; no redesign, no second plan",
+            "every claim cites an evidence ref or carries a label; an unlabeled unsupported claim is dropped by the host",
+            "always name the smallest check that would prove the recommendation wrong",
+            "no testing_mode, no consent, no instruction to implementer, no approval of its own advice",
+        ],
+    ),
+    independence=O(
+        required="a session that did not author or advocate the thing in question (ROLE-7)",
+        preferred="a model different from the author's; verify_routing warns when advisor resolves to the same harness and model as planner",
+    ),
+    tool_preflight=O(advisor=["file_read", "search"], on_missing="BLOCKED for that role with skip_reason=tool_unavailable_in_worker_session"),
+    rule_refs=["ROLE-7", "ROLE-8", "ROLE-9", "ORDER-10", "Q-2"],
+)
+
+# --------------------------------------------------------------------------
+# Code quality + playbooks. NEW in 2.5.6 — adapted from the pstack playbooks
+# and principle skills (cursor/plugins, MIT). Harness-neutral: the host renders
+# the steps into the order; no skill needs to be installed in the worker.
+# --------------------------------------------------------------------------
+QUAL_ALL = ["QUAL-%d" % i for i in range(1, 11)]
+code_quality = O(
+    purpose="State how code is written and reviewed inside an order; adds no stage, role or Jev call (QUAL-11).",
+    applies=O(
+        minor=["QUAL-3", "QUAL-7", "QUAL-8"],
+        standard=QUAL_ALL,
+        high=QUAL_ALL,
+        emergency=["QUAL-3", "QUAL-5", "QUAL-7"],
+        exploration_prototype=[],
+    ),
+    design_note=O(
+        required_when="mode == delivery AND risk in [standard, high] AND change_kind in [change_behavior, preserve_behavior]",
+        owner="host at brief_plan; planner at risk_design_recovery_plan",
+        fields=["data_shape: types, signatures, key structures", "state_owners: each piece of state and its single owner", "boundary: the module or interface the change sits behind", "candidates: [{shape, why_rejected}] (two or more when a module or public-interface boundary is crossed)", "decomposition: {blocking_first, independent_streams, shared_mutable_state, why_this_split}"],
+        pick_rule="one owner per piece of state; one way to do each task; callers need to know least",
+    ),
+    hygiene=[
+        "no narrating or leftover comments; keep license headers, public-API docs, links and constraints the code cannot express",
+        "no debug output, commented-out code or TODO without an owner",
+        "no speculative abstraction, guard for a state that cannot occur, or compatibility shim the order did not ask for",
+        "no unrelated edits or formatting churn outside the changed lines",
+        "names and structure follow the surrounding code",
+    ],
+    surfaces=O(
+        cli="run the real command",
+        ui="drive the changed flow in the running app",
+        parser_or_migration="replay a saved input",
+        performance="compare before/after measurements from the same harness",
+        storage="read back the written value",
+        library="call the public interface from a consumer",
+    ),
+    verdicts=["pass", "fail", "inconclusive"],
+    finding_proof=O(
+        blocking_requires=["run", "failing_check", "file_line"],
+        safety_fact_levels=["asserted", "pointed_at", "shown_unreachable", "run"],
+        non_blocking=["style", "naming", "preference", "risk that needs a future change to matter"],
+    ),
+    claim_labels=["measured", "inferred", "guess"],
+    pr_body=O(title="type(scope): subject", max_lines=40, sections=["Why", "What changed", "Scope", "Tradeoffs", "Blast radius", "Verification"], long_evidence="link to a file or comment; never paste logs"),
+    rule_refs=["QUAL-%d" % i for i in range(1, 12)],
+)
+
+playbooks = O(
+    purpose="Ordered steps the host renders into an implementation order, and the evidence that order's report must contain (QUAL-1).",
+    select=[
+        O(when="mode == emergency", playbook=None),
+        O(when="mode == exploration AND change_kind == disposable_prototype", playbook="prototype"),
+        O(when="mode == exploration", playbook="investigation"),
+        O(when="task_type == bug_fix", playbook="bug_fix"),
+        O(when="task_type == refactor", playbook="refactor"),
+        O(when="task_type == performance", playbook="performance"),
+        O(when="task_type in [feature, ui_ux, api_integration, database, security]", playbook="feature"),
+        O(when="otherwise (docs, tests, dependency_update, infrastructure)", playbook=None),
+    ],
+    non_override="never selects or overrides testing_mode, workflow, roles or risk (VER-1, WF-1); a step that says to delegate is done by the worker itself (AUTH-3)",
+    catalog=O(
+        bug_fix=O(
+            steps=[
+                "Reproduce the defect on the surface where it was observed before changing code; if it will not reproduce, tighten conditions or add instrumentation, then return NEEDS_DECISION with what was tried.",
+                "Narrow the cause by elimination: list candidate causes, take the split that removes the most, decide each with runtime evidence rather than by reading alone.",
+                "Fix at the first place the system went wrong, with the smallest change the evidence justifies; revert anything a refuted hypothesis motivated.",
+                "Re-run the original reproduction on the same surface; it must now pass. Unit tests alone show branch behavior, not absence of the defect.",
+                "Keep a regression check; under test_first, commit the failing check before the fix.",
+            ],
+            report_evidence=["reproduction command and the broken behavior", "root cause with file:line", "failing-then-passing reproduction output, verbatim", "other instances of the same fault"],
+            rule_refs=["QUAL-4", "QUAL-5", "QUAL-7"],
+        ),
+        feature=O(
+            steps=[
+                "Trace the affected subsystem: entry points, callers, the data that flows through.",
+                "Build to the order's design_note; if the code contradicts it, stop and return NEEDS_DECISION instead of improvising another shape.",
+                "Work in verifiable units, each ending in a check and a commit; write tests per the accepted testing_mode against observable behavior.",
+                "When a shared primitive changes, update every consumer and verify each.",
+                "Verify on the matching surface, self-review the diff, leave small ordered commits.",
+            ],
+            report_evidence=["each acceptance criterion mapped to a check and result ref", "choices made within local discretion and why", "units with the check run after each", "open decisions"],
+            rule_refs=["QUAL-2", "QUAL-4", "QUAL-6", "QUAL-7", "QUAL-8"],
+        ),
+        refactor=O(
+            steps=[
+                "Pin current behavior first: run existing protection; where it is missing add a characterization test, snapshot or old-vs-new equivalence script. Type-check and lint are not a pin.",
+                "State the target shape from the design_note; the reshape must delete branches, layers or invalid states, not add indirection.",
+                "Subtract first: delete dead code, collapse one-caller wrappers, drop redundant validation.",
+                "Move in small behavior-preserving steps with the pin green after each; migrate every caller and delete the old API in the same change; check renames in strings, docs and config.",
+                "Prove equivalence on the real artifact. A bug or missing feature found on the way is reported, not fixed in this order.",
+            ],
+            report_evidence=["the pin and its result before and after", "the structure that changed and what it removed", "equivalence proof", "what was tried and reverted"],
+            rule_refs=["QUAL-3", "QUAL-4", "QUAL-7"],
+        ),
+        performance=O(
+            steps=[
+                "Capture a baseline with a repeatable command on the path a user waits on; record environment and run count.",
+                "Find the measured cause from a profile or trace before changing code.",
+                "Try remedies cheapest first: stop doing the work, stop repeating it, do less, defer it, do it concurrently, make it cheaper. Stop when the target is met.",
+                "Re-measure with the same harness over alternating runs and confirm behavior is unchanged.",
+            ],
+            report_evidence=["baseline, after, delta, range and run count", "what limits the number now", "artifact path of the measurements", "behavior-preservation check result"],
+            rule_refs=["QUAL-4", "QUAL-7"],
+        ),
+        investigation=O(
+            steps=[
+                "Trace the code the question is about and cite file:line.",
+                "Answer with overview, how it works, where things live and gotchas; for a choice, a recommendation with a tradeoffs table.",
+                "No code change. If one is warranted, say so and return to the host for delivery reclassification.",
+            ],
+            report_evidence=["cited sources for every claim", "what remains unknown"],
+            rule_refs=["QUAL-10", "WF-4"],
+        ),
+        prototype=O(
+            steps=[
+                "State the decision the prototype exists to make; no decision, no prototype.",
+                "Build throwaway inside the order's isolated scratch scope, outside product source; no tests, no abstractions.",
+                "When comparing alternatives, build them side by side behind one switch, each labeled.",
+                "Observe the thing being decided (output, timing, screenshot) and record it.",
+            ],
+            report_evidence=["variants built and the scratch path", "the observation for each variant", "tradeoffs and a recommendation", "a plain statement that the code is throwaway"],
+            rule_refs=["QUAL-11", "WF-4"],
+        ),
+    ),
+    rule_refs=["QUAL-1", "QUAL-11"],
+)
+
+# --------------------------------------------------------------------------
 # Workflows and stages.
 # --------------------------------------------------------------------------
 wc = src["workflow_catalog"]
@@ -334,15 +527,15 @@ for wid in ("standard", "high", "emergency"):
 
 STAGE = {
     "scope_check": ("host", "Confirm snapshot/scope still match the evidence packet; fill only a material gap.", ["EVID-4"]),
-    "brief_plan": ("host", "Record goal, scope, acceptance criteria, testing_decision and compact verification_plan in the task record.", ["ROLE-1", "VER-5"]),
-    "risk_design_recovery_plan": ("planner", "Plan impact, contracts, failure cases, verification, rollout, recovery; name every affected critical boundary.", ["ROLE-1", "VER-6"]),
-    "pre_change_risk_check": ("host", "Confirm the plan addresses known risks before issuing dependent implementation orders.", ["ROLE-1"]),
-    "implement_and_verify": ("implementer", "Execute the order with accepted testing_mode; run development_iteration checks; self-repair within budget.", ["ROLE-2", "VER-2", "VER-5"]),
-    "pr_if_authorized": ("host", "Create PR only if user-authorized scope permits; otherwise report ready with the local diff.", ["AUTH-4"]),
+    "brief_plan": ("host", "Record goal, scope, criteria, testing_decision, playbook, design_note and compact verification_plan in the task record; evaluate advisor triggers.", ["ROLE-1", "VER-5", "QUAL-1", "QUAL-2", "ROLE-9"]),
+    "risk_design_recovery_plan": ("planner", "Plan impact, contracts, design_note with candidate shapes, failure cases, verification, rollout, recovery; name every affected critical boundary.", ["ROLE-1", "VER-6", "QUAL-2"]),
+    "pre_change_risk_check": ("host", "Confirm the plan addresses known risks and evaluate advisor triggers (ADV-3, ADV-4) before issuing dependent implementation orders.", ["ROLE-1", "ROLE-9"]),
+    "implement_and_verify": ("implementer", "Execute the order per its playbook and accepted testing_mode in verifiable units; run development_iteration checks; self-review the diff; self-repair within budget.", ["ROLE-2", "VER-2", "VER-5", "QUAL-4", "QUAL-8"]),
+    "pr_if_authorized": ("host", "Create PR only if user-authorized scope permits, in the QUAL-10 form; otherwise report ready with the local diff.", ["AUTH-4", "QUAL-10"]),
     "repository_checks": ("host", "Resolve required checks from actual repository rules; run pr_candidate plan; never narrate past a required check.", ["VER-5", "VER-7"]),
-    "independent_review_and_ci": ("task-verifier", "Fixed-target independent review in a separate context; CI runs normally; collect each planned result once.", ["ROLE-3", "ROLE-7", "VER-9"]),
+    "independent_review_and_ci": ("task-verifier", "Fixed-target independent review in a separate context against criteria and QUAL-2..8; blocking findings carry proof; CI runs normally; collect each planned result once.", ["ROLE-3", "ROLE-7", "VER-9", "QUAL-9"]),
     "risk_specific_verification": ("host", "Reconcile uncovered plan entries (permission, integrity, compatibility, failure, migration, recovery); tester only for gaps.", ["VER-6", "ROLE-6"]),
-    "conditional_repair": ("host", "Validate findings; issue bounded repair order for actual blocking defects; revalidate affected entries only.", ["ORDER-6", "VER-9", "VER-10"]),
+    "conditional_repair": ("host", "Validate findings; consult advisor on a disputed finding or repeated failure (ADV-1, ADV-2); issue bounded repair order for actual blocking defects; revalidate affected entries only.", ["ORDER-6", "VER-9", "VER-10", "ROLE-9"]),
     "completion_gate": ("host", "Accept only after criteria, independent findings, actual evidence and blockers are reconciled; PASS/RESULT_SUBMITTED are inputs, not acceptance.", ["AUTH-5", "VER-7"]),
     "merge_if_authorized": ("host", "Merge only after completion_gate passes and merge is authorized; otherwise report ready-to-merge.", ["AUTH-4"]),
     "authorized_rollout_and_verification": ("host", "Bounded rollout only with explicit deploy request + permission; post-deploy tester item runs after actual deployment.", ["AUTH-4", "VER-8"]),
@@ -477,16 +670,25 @@ enums = O(
     evidence_label=verification["evidence"]["labels"],
     external_contract_status=["unverified", "verified", "not_applicable"],
     evidence_order_skip_reason=["gap_already_closed_by_host_read", "valid_prior_evidence_reused", "trigger_false_positive", "tool_unavailable_in_worker_session"],
+    consultation_skip_reason=["settled_by_discriminating_check", "prior_consultation_covers_question", "product_intent_or_authorization_question", "trigger_false_positive", "tool_unavailable_in_worker_session"],
+    playbook_id=list(playbooks["catalog"].keys()),
+    check_verdict=code_quality["verdicts"],
+    finding_proof_kind=code_quality["finding_proof"]["blocking_requires"],
+    safety_fact_level=code_quality["finding_proof"]["safety_fact_levels"],
+    claim_label=code_quality["claim_labels"],
 )
 
 # --------------------------------------------------------------------------
 # Templates (verbatim) + new request template.
 # --------------------------------------------------------------------------
-VERSION = "2.5.5-draft"
+VERSION = "2.5.6-draft"
 task_record = copy.deepcopy(src["task_record_template"])
 task_record["policy_version"] = VERSION
 task_record["inherited_risk_floor"] = None  # NEW in 2.5.0: previously referenced but had no slot
 task_record["evidence_orders_evaluated"] = O(inspector_triggers=[], researcher_triggers=[], issued=[], skipped=[])  # NEW in 2.5.1
+task_record["playbook_id"] = None  # NEW in 2.5.6 (QUAL-1)
+task_record["design_note"] = None  # NEW in 2.5.6 (QUAL-2); shape in code_quality.design_note.fields
+task_record["consultations_evaluated"] = O(advisor_triggers=[], issued=[], skipped=[])  # NEW in 2.5.6 (ROLE-9)
 
 evidence_packet = copy.deepcopy(src["evidence_preparation"]["template"])
 evidence_packet["external_contracts"] = O(status="not_applicable", refs=[])  # NEW in 2.5.1: researcher trigger RES-1
@@ -506,10 +708,44 @@ templates = O(
         specialist_question=None,
     ),
     evidence_packet=evidence_packet,
-    work_order=O(list(src["work_order_contract"]["work_order_template"].items()) + [("launch_channel", "herdr_pane"), ("pane_id", None)]),
+    work_order=O(list(src["work_order_contract"]["work_order_template"].items()) + [("launch_channel", "herdr_pane"), ("pane_id", None), ("playbook_ref", None), ("design_note_ref", None)]),
     worker_question=copy.deepcopy(src["question_protocol"]["question_template"]),
     task_record=task_record,
+    # NEW in 2.5.6: what an implementer and a task-verifier hand back (QUAL-9, QUAL-10)
+    worker_report=O(
+        task_id=None, order_id=None, order_revision=None, status="RESULT_SUBMITTED", head_revision=None,
+        goal="", playbook_id=None,
+        changes=[],
+        units=[],
+        reproduction=None,
+        verification=[],
+        self_review=O(hygiene_checked=False, notes=[]),
+        claims=[],
+        out_of_scope_findings=[],
+        open_decisions=[],
+    ),
+    review_report=O(
+        task_id=None, order_id=None, order_revision=None, reviewed_revision=None,
+        verdict=None,
+        findings=[],
+        safety_fact=O(statement=None, level=None, ref=None),
+        cleared=[],
+        not_reviewed=[],
+    ),
 )
+code_quality["report_shapes"] = O(
+    worker_report=O(
+        units="{change, check, result_ref}",
+        reproduction="{command, before_ref, after_ref} | null when the playbook needs none",
+        verification="{check, surface, verdict: pass|fail|inconclusive, result_ref}",
+        claims="{claim, evidence_ref | label: measured|inferred|guess}",
+    ),
+    review_report=O(
+        findings="{id, blocking, rule_ref, location, claim, proof: {kind: run|failing_check|file_line, ref}}",
+        safety_fact="the one fact beyond the diff the change is safe because of; level: asserted|pointed_at|shown_unreachable|run",
+    ),
+)
+code_quality.move_to_end("rule_refs")
 
 # --------------------------------------------------------------------------
 # Assemble.
@@ -540,6 +776,8 @@ cfg["provenance"] = O(
         "2.5.2: model settings (roles harness/model/effort, defaults, router connection, profiles, adapters) moved to models.json; policy roles reference it",
         "2.5.5: launch channel fixed to herdr_pane for every delegated role (ORDER-9); work_order gains launch_channel/pane_id; models.json adapters gain launch_channels and a claude entry",
         "2.5.4: modifiers ui_ux/database/security/api_integration also activate on their task_type (MOD-1); CLS-7b analysis x delivery -> NEEDS_CONTEXT; change_kind gains test_only",
+        "2.5.6: advisor gets positive triggers ADV-1..5, order defaults, an output contract, a mandatory skip record and task_record.consultations_evaluated (ROLE-8, ROLE-9, ORDER-10); needs_specialist becomes a consultation trigger; review and consultation orders may name one report path under .routing/evidence/",
+        "2.5.6: new code_quality and playbooks sections (QUAL-1..11), templates.worker_report and templates.review_report, work_order.playbook_ref/design_note_ref, task_record.playbook_id/design_note; stage summaries updated; no new stage, role or Jev question",
         "2.5.3: document precedence (AUTH-7), host never writes product code (AUTH-1), delegation.liveness with heartbeat/exit-without-report handling (ORDER-8), independence wording 'different model preferred, not sufficient' (ROLE-7), minimal-worker rule scoped to implementation workers (WF-2)",
     ],
 )
@@ -625,14 +863,19 @@ cfg["work_order"] = O(
         testing_decision_ref="required for implementation/prototype/repair orders unless an authorized documented exception",
         verification_plan_ref="required for orders that execute checks or evaluate final verification",
         decision_question="required for advisor",
+        playbook_ref="required for implementation/repair/prototype orders when playbooks.select names a playbook; null otherwise (QUAL-1)",
+        design_note_ref="required for implementation orders when code_quality.design_note.required_when holds (QUAL-2)",
         pane_id="null at issuance; the host fills the Herdr pane id immediately after launch (ORDER-9)",
     ),
     empty_semantics=O(write_scope="no target writes", allowed_actions="no executable or external side effects"),
-    rule_refs=["ORDER-1", "ORDER-2", "ORDER-3", "ORDER-4", "ORDER-5", "ORDER-9"],
+    rule_refs=["ORDER-1", "ORDER-2", "ORDER-3", "ORDER-4", "ORDER-5", "ORDER-9", "ORDER-10", "QUAL-1", "QUAL-2"],
 )
 cfg["jev"] = jev
 cfg["decision"] = decision
 cfg["evidence_orders"] = evidence_orders
+cfg["consultation_orders"] = consultation_orders
+cfg["code_quality"] = code_quality
+cfg["playbooks"] = playbooks
 cfg["workflows"] = workflows
 cfg["stages"] = stages
 cfg["modifiers"] = modifiers
@@ -645,7 +888,11 @@ cfg["validation"] = O(
     change_control="reevaluate labeled holdout tasks when questions, thresholds, taxonomy, normalization or router model change; tune on dev, report on holdout",
     rule_refs=["VAL-1", "VAL-2"],
 )
-cfg["sources"] = O(checked_on=src["sources"]["checked_on"], official_docs=src["sources"]["official_docs"])
+cfg["sources"] = O(
+    checked_on=src["sources"]["checked_on"],
+    official_docs=src["sources"]["official_docs"],
+    adapted_from=[O(name="pstack (cursor/plugins)", url="https://github.com/cursor/plugins/tree/main/pstack", revision="005d8f6", license="MIT", used_for="code_quality, playbooks, advisor triggers and output contract", checked_on="2026-11-24")],
+)
 
 with open(OUT, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
